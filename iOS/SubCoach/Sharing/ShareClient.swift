@@ -7,6 +7,8 @@ import Foundation
 final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     var onBundle: (ShareBundle, UUID) -> Void = { _, _ in }
     var log: (String) -> Void = { _ in }
+    /// Connected to a host and able to reply (also after reconnecting).
+    var onConnectedToHost: (UUID) -> Void = { _ in }
 
     private var manager: CBCentralManager?
     private var peers: [UUID: CBPeripheral] = [:]
@@ -44,14 +46,19 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
         } else {
             rescanTimer?.invalidate()
             rescanTimer = nil
-            manager.stopScan()
+            // While following a game, keep listening in the background so the host's phone is
+            // found again if it drops out (or its app restarts and it looks like a new device).
+            if followed != nil { restartScan() } else { manager.stopScan() }
             for (id, p) in peers where id != followed { manager.cancelPeripheralConnection(p) }
         }
     }
 
     /// Stop listening to this host (declined, or stopped following).
     func drop(_ id: UUID) {
-        if followed == id { followed = nil }
+        if followed == id {
+            followed = nil
+            if !active { manager?.stopScan() }
+        }
         if let p = peers[id] { manager?.cancelPeripheralConnection(p) }
     }
 
@@ -115,7 +122,9 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard active, peers[peripheral.identifier]?.state != .connected, peripheral.state == .disconnected else { return }
+        // In the background, only look for the followed game's host, and only while it's missing.
+        let lookingForHost = followed.map { peers[$0]?.state != .connected } ?? false
+        guard active || lookingForHost, peers[peripheral.identifier]?.state != .connected, peripheral.state == .disconnected else { return }
         if let until = notSharingUntil[peripheral.identifier], until > .now { return }
         log("client found host \(peripheral.identifier.uuidString.prefix(4))")
         adopt(peripheral)
@@ -180,7 +189,10 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         for c in service.characteristics ?? [] {
             if c.uuid == ShareBLE.stream { peripheral.setNotifyValue(true, for: c) }
-            if c.uuid == ShareBLE.reply { replyCharacteristics[peripheral.identifier] = c }
+            if c.uuid == ShareBLE.reply {
+                replyCharacteristics[peripheral.identifier] = c
+                onConnectedToHost(peripheral.identifier)
+            }
         }
     }
 

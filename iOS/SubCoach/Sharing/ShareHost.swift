@@ -5,6 +5,10 @@ import Foundation
 /// who connects, and again whenever it changes.
 final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     var onReply: (ShareReply) -> Void = { _ in }
+    /// A coach's phone disconnected (stopped following, out of range, or app closed).
+    var onCoachGone: (String) -> Void = { _ in }
+    /// Which coach is behind each connection, learned from their replies.
+    private var coachByCentral: [UUID: String] = [:]
     var log: (String) -> Void = { _ in }
 
     private var manager: CBPeripheralManager?
@@ -118,6 +122,7 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
         subscribers.removeAll { $0.identifier == central.identifier }
         log("host: coach disconnected (\(subscribers.count))")
+        if let coach = coachByCentral.removeValue(forKey: central.identifier) { onCoachGone(coach) }
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
@@ -126,7 +131,10 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         for r in requests {
-            if let v = r.value, let reply = try? JSONDecoder().decode(ShareReply.self, from: v) { onReply(reply) }
+            if let v = r.value, let reply = try? JSONDecoder().decode(ShareReply.self, from: v) {
+                coachByCentral[r.central.identifier] = reply.coachID
+                onReply(reply)
+            }
         }
         if let first = requests.first { peripheral.respond(to: first, withResult: .success) }
     }

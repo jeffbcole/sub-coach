@@ -4,6 +4,7 @@ import Foundation
 extension LineupStore {
     private static let followingKey = "followingGame"
     private static let handledKey = "handledShareSessions"
+    private static let broadcastKey = "broadcastState"
 
     func setUpSharing() {
         shareHost.log = shareLog
@@ -14,6 +15,19 @@ extension LineupStore {
         shareClient.onBundle = { [weak self] bundle, peer in
             MainActor.assumeIsolated { self?.received(bundle, from: peer) }
         }
+        shareHost.onCoachGone = { [weak self] coachID in
+            MainActor.assumeIsolated {
+                guard let self, self.shareReplies[coachID]?.status == .following else { return }
+                self.shareReplies[coachID]?.status = .left
+            }
+        }
+        shareClient.onConnectedToHost = { [weak self] peer in
+            MainActor.assumeIsolated {
+                // Back in range of the game we follow: let the host list us again.
+                guard let self, let f = self.following, !f.ended, f.peer == peer else { return }
+                self.reply(.following, session: f.offer.session, to: peer)
+            }
+        }
         handledSessions = UserDefaults.standard.stringArray(forKey: Self.handledKey) ?? []
         if let data = UserDefaults.standard.data(forKey: Self.followingKey),
            let f = try? JSONDecoder().decode(FollowedGame.self, from: data), !f.ended {
@@ -21,6 +35,17 @@ extension LineupStore {
             shareClient.followed = f.peer
         }
         shareClient.start()
+        // Broadcasting when the app was closed mid-game: carry on with the same broadcast, and keep
+        // counting updates up from where they were (followers ignore anything older).
+        if let saved = UserDefaults.standard.dictionary(forKey: Self.broadcastKey),
+           let session = saved["session"] as? String, let rev = saved["rev"] as? Int, clock.phase != .ready {
+            broadcastSession = session
+            broadcastRev = rev + 1
+            shareLog("resuming broadcast \(session) at rev \(broadcastRev)")
+            publish()
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.broadcastKey)
+        }
         runShareDebugActions()
     }
 
@@ -66,6 +91,7 @@ extension LineupStore {
             broadcastSession = Game.newID()
             broadcastRev = 0
             endedBroadcast = nil
+            saveBroadcast()
             publish()
         } else {
             guard broadcastSession != nil else { return }
@@ -74,6 +100,7 @@ extension LineupStore {
             last?.rev += 1
             broadcastSession = nil
             endedBroadcast = last
+            saveBroadcast()
             publish()
             // Keep the "ended" message out for a few seconds so followers hear it, then go quiet.
             Task { [weak self] in
@@ -95,7 +122,16 @@ extension LineupStore {
     func pushBroadcast() {
         guard broadcastSession != nil else { return }
         broadcastRev += 1
+        saveBroadcast()
         publish()
+    }
+
+    private func saveBroadcast() {
+        if let s = broadcastSession {
+            UserDefaults.standard.set(["session": s, "rev": broadcastRev], forKey: Self.broadcastKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.broadcastKey)
+        }
     }
 
     private func currentGameOffer() -> GameOffer? {
@@ -135,6 +171,12 @@ extension LineupStore {
         if let g = bundle.game {
             if var f = following, f.offer.session == g.session {
                 guard g.rev >= f.offer.rev else { return }
+                if f.peer != peer {
+                    // Same game, but the host's phone looks like a new device (its app restarted).
+                    shareLog("host reappeared as \(peer.uuidString.prefix(4))")
+                    f.peer = peer
+                    shareClient.followed = peer
+                }
                 f.offer = g
                 f.clockOffset = offset
                 f.lastUpdate = .now
@@ -154,6 +196,12 @@ extension LineupStore {
                 // Keep the waiting popup's copy current; drop it if the broadcast ended.
                 if g.ended { pendingGame = nil } else { pendingGame?.offer = g; pendingGame?.clockOffset = offset }
             }
+        }
+
+        // While following a game, don't stay connected to other coaches who are sharing
+        // (say, the other team's) unless they're offering a roster.
+        if let f = following, !f.ended, peer != f.peer, bundle.game?.session != f.offer.session, pendingRoster?.peer != peer {
+            shareClient.drop(peer)
         }
     }
 
@@ -202,9 +250,15 @@ extension LineupStore {
     /// Leave the followed game (or close it after the host ended it).
     func stopFollowing() {
         guard let f = following else { return }
-        if !f.ended { reply(.left, session: f.offer.session, to: f.peer) }
-        shareClient.drop(f.peer)
         following = nil
+        if !f.ended {
+            // Tell the host, then hang up once the message has had time to go out.
+            reply(.left, session: f.offer.session, to: f.peer)
+            let client = shareClient, peer = f.peer
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { client.drop(peer) }
+        } else {
+            shareClient.drop(f.peer)
+        }
         saveFollowing()
         refreshGameOutputs()
     }
