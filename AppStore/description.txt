@@ -1,0 +1,32 @@
+Sub Coach takes the guesswork out of youth soccer substitutions. Plan a fair rotation in seconds, then let the game clock tell you exactly when to sub and who goes in and out, so you can watch the game instead of your clipboard.
+
+PLAN THE ROTATION
+• Auto-fill builds a lineup for the whole game in one tap
+• Evens out playing time, and lets you give any player a little more or less
+• Groups each player's bench time together instead of in and out every few minutes
+• Only puts players in positions they can play, with one keeper each half
+• Tick off who's at today's game and the rest are left out automatically
+• Tap any spot to change it by hand
+
+RUN THE GAME
+• Start the game clock at kickoff
+• Every substitution shown as a card: who comes on, who comes off, who moves
+• An alert at each sub time, even with your phone in your pocket
+• A live countdown on the lock screen and in the Dynamic Island
+• Pause, match the referee's clock, or end a half early
+
+ANY FORMAT
+• 4 to 11 players on the field, including the goalkeeper
+• Formations for every size, like 2-3-1, 3-2-1, 3-3-2 and 4-4-2
+• Any half length, with 1 to 6 substitution periods per half
+• Save a lineup for every game
+
+COACH TOGETHER
+• Share your roster with assistant coaches standing nearby. No accounts or internet needed.
+• Broadcast a live game so other coaches get the same sub alerts on their phones
+
+PRINT IT
+• A one-page lineup sheet for the sideline
+
+PRIVATE BY DESIGN
+No accounts, no ads, no tracking. Your team stays on your device. Sub Coach is open source, so anyone can check.

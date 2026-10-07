@@ -13,4 +13,8 @@ Privacy policy URL: https://cribbageclassic.com/sub-coach/privacy.html
 Support URL: https://cribbageclassic.com/sub-coach/support.html
 Marketing URL: https://cribbageclassic.com/sub-coach/
 
-Still to do: description, keywords, screenshots, category, age rating.
+Description: AppStore/description.txt (1,557 / 4,000)
+Promotional text: AppStore/promotional-text.txt (128 / 170; can be changed any time without an app update)
+Keywords: AppStore/keywords.txt (95 / 100)
+
+Still to do: screenshots, category, age rating.
