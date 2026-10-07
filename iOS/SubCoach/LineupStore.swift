@@ -33,6 +33,8 @@ final class LineupStore {
     var pendingGame: PendingGame?
     /// Receiver: the broadcast being followed.
     var following: FollowedGame?
+    /// Receiver: broadcasts currently heard nearby, by session (whether followed or not).
+    var liveBroadcasts: [String: LiveBroadcast] = [:]
     /// Receiver: shares and broadcasts already answered, so nobody is asked twice.
     var handledSessions: [String] = []
 
@@ -142,6 +144,7 @@ final class LineupStore {
     func duplicateLineup(_ id: String) {
         guard var copy = team.lineup(id) else { return }
         copy.id = Game.newID()
+        copy.broadcast = nil // the copy is the coach's own
         copy.name = copy.displayName + " copy"
         copy.updated = .now
         var t = team

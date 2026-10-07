@@ -65,6 +65,15 @@ struct LineupsList: View {
                 Text("\(here) players · edited \(l.updated.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let link = l.broadcast {
+                    let live = store.liveBroadcast(for: l) != nil
+                    HStack(spacing: 4) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                        Text(live ? "\(link.hostName)'s broadcast · live" : "From \(link.hostName)'s broadcast")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(live ? Color.blue : Color.secondary)
+                }
                 if inGame {
                     HStack(spacing: 4) {
                         Image(systemName: "stopwatch")

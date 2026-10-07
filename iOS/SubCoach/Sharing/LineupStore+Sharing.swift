@@ -21,6 +21,12 @@ extension LineupStore {
                 self.shareReplies[coachID]?.status = .left
             }
         }
+        shareClient.onDisconnectedFromHost = { [weak self] peer in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for (session, b) in self.liveBroadcasts where b.peer == peer { self.liveBroadcasts[session] = nil }
+            }
+        }
         shareClient.onConnectedToHost = { [weak self] peer in
             MainActor.assumeIsolated {
                 // Back in range of the game we follow: let the host list us again.
@@ -169,6 +175,12 @@ extension LineupStore {
         }
 
         if let g = bundle.game {
+            if g.ended {
+                liveBroadcasts[g.session] = nil
+            } else {
+                liveBroadcasts[g.session] = LiveBroadcast(offer: g, hostName: bundle.hostName, hostID: bundle.hostID,
+                                                          peer: peer, clockOffset: offset)
+            }
             if var f = following, f.offer.session == g.session {
                 guard g.rev >= f.offer.rev else { return }
                 if f.peer != peer {
@@ -184,13 +196,14 @@ extension LineupStore {
                 following = f
                 shareLog("game update rev \(g.rev)\(g.ended ? " (ended)" : "") phase \(g.clock.phase.rawValue) half \(g.clock.half)")
                 saveFollowing()
+                storeBroadcastLineup(g, hostName: bundle.hostName, hostID: bundle.hostID, select: false)
                 refreshGameOutputs()
                 if g.ended { shareClient.drop(peer) } // the host is done; don't keep the connection
             } else if !g.ended, !handledSessions.contains(g.session), pendingGame == nil, following == nil || following?.ended == true {
                 // Not while following a game: another coach broadcasting nearby (say, the other
                 // team's) shouldn't interrupt with a popup mid-game.
                 shareLog("game offer from \(bundle.hostName): \(g.lineup.displayName)")
-                pendingGame = PendingGame(offer: g, hostName: bundle.hostName, peer: peer, clockOffset: offset)
+                pendingGame = PendingGame(offer: g, hostName: bundle.hostName, hostID: bundle.hostID, peer: peer, clockOffset: offset)
                 if debugFlag("shareDebugAutoAccept") { acceptGame() }
             } else if let p = pendingGame, p.offer.session == g.session {
                 // Keep the waiting popup's copy current; drop it if the broadcast ended.
@@ -229,15 +242,56 @@ extension LineupStore {
         guard let p = pendingGame else { return }
         pendingGame = nil
         markHandled(p.offer.session)
-        following = FollowedGame(peer: p.peer, hostName: p.hostName, offer: p.offer,
-                                 clockOffset: p.clockOffset, lastUpdate: .now)
-        shareClient.followed = p.peer
+        follow(LiveBroadcast(offer: p.offer, hostName: p.hostName, hostID: p.hostID, peer: p.peer, clockOffset: p.clockOffset))
+    }
+
+    /// The live broadcast a lineup came from, if it can be heard right now.
+    func liveBroadcast(for lineup: SavedLineup?) -> LiveBroadcast? {
+        guard let link = lineup?.broadcast, let live = liveBroadcasts[link.session], !live.offer.ended else { return nil }
+        return live
+    }
+
+    /// Follow a broadcast: save (or refresh) its lineup in this coach's list, open it, and show Game Day.
+    func follow(_ b: LiveBroadcast) {
+        following = FollowedGame(peer: b.peer, hostName: b.hostName, offer: b.offer,
+                                 clockOffset: b.clockOffset, lastUpdate: .now)
+        shareClient.followed = b.peer
         saveFollowing()
-        reply(.following, session: p.offer.session, to: p.peer)
+        storeBroadcastLineup(b.offer, hostName: b.hostName, hostID: b.hostID, select: true)
+        reply(.following, session: b.offer.session, to: b.peer)
         presentGameDay = true
         refreshGameOutputs()
         SubAlerts.requestPermission { [weak self] in self?.refreshGameOutputs() }
-        shareLog("following \(p.hostName)'s game")
+        shareLog("following \(b.hostName)'s game")
+    }
+
+    /// Keep a copy of the broadcast's lineup in this coach's saved lineups, updated as the host changes it.
+    private func storeBroadcastLineup(_ g: GameOffer, hostName: String, hostID: String, select: Bool) {
+        let id = "bc-" + g.session
+        var t = team
+        // Bring along any of the host's players this coach's roster doesn't have yet.
+        for p in g.players where !t.roster.contains(where: { $0.id == p.id }) { t.roster.append(p) }
+        var l = g.lineup
+        l.id = id
+        l.broadcast = BroadcastLink(session: g.session, hostID: hostID, hostName: hostName)
+        if let i = t.lineups.firstIndex(where: { $0.id == id }) {
+            let existing = t.lineups[i]
+            l.name = existing.name // keep any rename
+            l.updated = existing.updated
+            if l != existing { l.updated = .now }
+            t.lineups[i] = l
+        } else {
+            l.name = "\(g.lineup.displayName) (\(hostName))"
+            l.updated = .now
+            t.lineups.append(l)
+        }
+        if select && t.currentID != id {
+            t.currentID = id
+            clearUndo()
+        }
+        guard t != team else { return }
+        setTeam(t)
+        save()
     }
 
     func declineGame() {
@@ -261,24 +315,6 @@ extension LineupStore {
         }
         saveFollowing()
         refreshGameOutputs()
-    }
-
-    /// Save the followed game's lineup as one of this coach's own saved lineups.
-    func saveFollowedLineup() {
-        guard var f = following, f.savedLineupID == nil else { return }
-        var t = team
-        // Bring along any players this coach's roster doesn't have yet.
-        for p in f.offer.players where !t.roster.contains(where: { $0.id == p.id }) { t.roster.append(p) }
-        var copy = f.offer.lineup
-        copy.id = Game.newID()
-        copy.name = copy.displayName + " (from \(f.hostName))"
-        copy.updated = .now
-        t.lineups.append(copy)
-        setTeam(t)
-        save()
-        f.savedLineupID = copy.id
-        following = f
-        saveFollowing()
     }
 
     private func reply(_ status: ShareReply.Status, session: String, to peer: UUID) {

@@ -9,6 +9,8 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     var log: (String) -> Void = { _ in }
     /// Connected to a host and able to reply (also after reconnecting).
     var onConnectedToHost: (UUID) -> Void = { _ in }
+    /// Lost the connection to a host (it stopped sharing, left range, or we hung up).
+    var onDisconnectedFromHost: (UUID) -> Void = { _ in }
 
     private var manager: CBCentralManager?
     private var peers: [UUID: CBPeripheral] = [:]
@@ -155,6 +157,7 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
 
     private func disconnected(_ p: CBPeripheral) {
         let id = p.identifier
+        onDisconnectedFromHost(id)
         replyCharacteristics[id] = nil
         reassemblers[id] = nil
         if id == followed {

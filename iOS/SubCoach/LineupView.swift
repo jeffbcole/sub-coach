@@ -115,14 +115,19 @@ struct LineupView: View {
         let gameID = store.gameLineupID
         let otherGame = gameID.flatMap { id in id == store.team.currentID ? nil : store.team.lineup(id) }
         let followed = store.following
+        // This lineup came from a broadcast that's live nearby: offer to follow it (again).
+        let live = followed == nil ? store.liveBroadcast(for: store.currentLineup) : nil
         return Button {
+            if let live { store.follow(live); return }
             if followed == nil, let otherGame { store.selectLineup(otherGame.id) }
             store.presentGameDay = true
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: followed != nil ? "antenna.radiowaves.left.and.right" : gameID == nil ? "play.fill" : "stopwatch")
+                Image(systemName: followed != nil || live != nil ? "antenna.radiowaves.left.and.right" : gameID == nil ? "play.fill" : "stopwatch")
                 if let followed {
                     Text("Following \(followed.hostName)").lineLimit(1)
+                } else if let live {
+                    Text("Follow \(live.hostName)").lineLimit(1)
                 } else if let otherGame {
                     Text("Game on: \(otherGame.displayName)").lineLimit(1)
                 } else if gameID != nil {
@@ -142,7 +147,7 @@ struct LineupView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.borderedProminent)
-        .tint(followed != nil ? .blue : gameID == nil ? Theme.accent : .orange)
+        .tint(followed != nil || live != nil ? .blue : gameID == nil ? Theme.accent : .orange)
     }
 
     // MARK: Summary

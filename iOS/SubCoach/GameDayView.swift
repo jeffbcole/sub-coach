@@ -432,24 +432,14 @@ private struct FollowerControls: View {
                         .foregroundStyle(.blue)
                 }
             }
-            HStack(spacing: 10) {
-                Button {
-                    store.saveFollowedLineup()
-                } label: {
-                    Label(game.savedLineupID == nil ? "Save lineup" : "Saved", systemImage: game.savedLineupID == nil ? "square.and.arrow.down" : "checkmark")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).controlSize(.large)
-                .disabled(game.savedLineupID != nil)
-
-                Button(role: game.ended ? nil : .destructive) {
-                    store.stopFollowing()
-                    dismiss()
-                } label: {
-                    Text(game.ended ? "Close" : "Stop following").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).controlSize(.large)
+            // The lineup is already in this coach's saved lineups; following again is from there.
+            Button(role: game.ended ? nil : .destructive) {
+                store.stopFollowing()
+                dismiss()
+            } label: {
+                Text(game.ended ? "Close" : "Stop following").frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered).controlSize(.large)
         }
     }
 }

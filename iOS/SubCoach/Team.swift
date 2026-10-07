@@ -47,6 +47,8 @@ struct SavedLineup: Codable, Identifiable, Equatable {
     var absent: [String] = []
     /// Player id -> position for each period (nil = bench).
     var cells: [String: [Int?]] = [:]
+    /// Set when this lineup came from another coach's broadcast; lets the coach follow it again.
+    var broadcast: BroadcastLink? = nil
 
     var displayName: String {
         let t = name.trimmingCharacters(in: .whitespaces)
@@ -68,7 +70,15 @@ extension SavedLineup {
         gk2 = try c.decodeIfPresent(String.self, forKey: .gk2) ?? ""
         absent = try c.decodeIfPresent([String].self, forKey: .absent) ?? []
         cells = try c.decodeIfPresent([String: [Int?]].self, forKey: .cells) ?? [:]
+        broadcast = try c.decodeIfPresent(BroadcastLink.self, forKey: .broadcast)
     }
+}
+
+/// Which broadcast a followed lineup belongs to.
+struct BroadcastLink: Codable, Equatable {
+    var session: String
+    var hostID: String
+    var hostName: String
 }
 
 /// Everything the app saves: the roster plus all saved lineups.

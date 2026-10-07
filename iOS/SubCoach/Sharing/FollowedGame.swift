@@ -9,8 +9,6 @@ struct FollowedGame: Codable, Equatable {
     /// Add to the host's times to get this phone's times (phone clocks can differ by a few seconds).
     var clockOffset: TimeInterval
     var lastUpdate: Date
-    /// Set once the coach saves a copy of the lineup.
-    var savedLineupID: String?
 
     var ended: Bool { offer.ended }
 
@@ -39,7 +37,17 @@ struct PendingRoster: Equatable {
 struct PendingGame: Equatable {
     var offer: GameOffer
     var hostName: String
+    var hostID: String
     var peer: UUID
     /// Measured when the offer arrived (not when Follow was tapped).
+    var clockOffset: TimeInterval
+}
+
+/// A broadcast this phone can currently hear, so a coach can follow (or re-follow) it from its lineup.
+struct LiveBroadcast: Equatable {
+    var offer: GameOffer
+    var hostName: String
+    var hostID: String
+    var peer: UUID
     var clockOffset: TimeInterval
 }
