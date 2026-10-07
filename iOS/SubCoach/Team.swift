@@ -63,7 +63,7 @@ extension SavedLineup {
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         updated = try c.decodeIfPresent(Date.self, forKey: .updated) ?? .now
-        perHalf = try c.decodeIfPresent(Int.self, forKey: .perHalf) ?? 3
+        perHalf = try c.decodeIfPresent(Int.self, forKey: .perHalf) ?? Game.defaultPerHalf
         halfMinutes = try c.decodeIfPresent(Int.self, forKey: .halfMinutes) ?? Game.defaultHalfMinutes
         formation = try c.decodeIfPresent(String.self, forKey: .formation) ?? Formation.standard.id
         gk1 = try c.decodeIfPresent(String.self, forKey: .gk1) ?? ""
@@ -176,7 +176,7 @@ struct TeamData: Codable, Equatable {
     /// Make sure there is always at least one lineup and a valid current one.
     mutating func repair() {
         if lineups.isEmpty {
-            lineups = [SavedLineup(id: Game.newID(), name: "Lineup 1", updated: .now, perHalf: 3, halfMinutes: Game.defaultHalfMinutes)]
+            lineups = [SavedLineup(id: Game.newID(), name: "Lineup 1", updated: .now, perHalf: Game.defaultPerHalf, halfMinutes: Game.defaultHalfMinutes)]
         }
         if lineup(currentID) == nil {
             currentID = lineups.max { $0.updated < $1.updated }!.id

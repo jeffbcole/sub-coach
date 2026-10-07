@@ -2,6 +2,7 @@ import Foundation
 
 enum Game {
     static let defaultHalfMinutes = 25
+    static let defaultPerHalf = 5
     static let halfLengthChoices = [10, 12, 15, 20, 25, 30, 35, 40, 45]
     static let defaultPositions = ["GK", "LD", "RD", "LM", "RM", "LF", "RF"]
     static let weights: [(value: Double, label: String)] = [(0.75, "Less"), (1, "Normal"), (1.25, "More"), (1.5, "Most")]
@@ -62,7 +63,7 @@ extension Player {
 }
 
 struct LineupState: Codable, Equatable {
-    var perHalf: Int = 3
+    var perHalf: Int = Game.defaultPerHalf
     var halfMinutes: Int = Game.defaultHalfMinutes
     var title: String = ""
     var gk1: String = ""
@@ -102,7 +103,7 @@ struct LineupState: Codable, Equatable {
 
     /// Clamp everything to valid shapes, like the web version's normalize().
     mutating func normalize() {
-        perHalf = (1...6).contains(perHalf) ? perHalf : 3
+        perHalf = (1...6).contains(perHalf) ? perHalf : Game.defaultPerHalf
         halfMinutes = (5...60).contains(halfMinutes) ? halfMinutes : Game.defaultHalfMinutes
         if positions.isEmpty { positions = Game.defaultPositions }
         let size = positions.count
@@ -141,22 +142,12 @@ struct LineupState: Codable, Equatable {
         perHalf = n
     }
 
+    /// A new install's sample team: 11 players and an empty plan (tap Auto-fill to build one).
     static func starter() -> LineupState {
-        let team: [(String, String, [String])] = [
-            ("9179lgu", "Player 1", ["6", "6", "6", "6", "6", ""]),
-            ("2r588zr", "Player 2", ["5", "5", "5", "5", "", "5"]),
-            ("lh3i1ht", "Player 3", ["3", "3", "3", "3", "3", "3"]),
-            ("y832da5", "Player 4", ["4", "4", "4", "4", "4", "4"]),
-            ("awcxjkw", "Player 5", ["", "2", "", "0", "0", "0"]),
-            ("cfpuj10", "Player 6", ["6", "", "2", "", "4", ""]),
-            ("6ufotvs", "Player 7", ["5", "4", "", "2", "", "6"]),
-            ("19clq4r", "Player 8", ["", "1", "", "4", "6", ""]),
-            ("qrhp326", "Player 9", ["0", "0", "0", "", "5", "3"]),
-            ("0jz9vyp", "Player 10", ["4", "5", "", "0", "0", "0"]),
-            ("dm5xqf9", "Player 11", ["0", "0", "0", "", "2", ""]),
-        ]
         var s = LineupState()
-        s.players = team.map { Player(id: $0.0, name: $0.1, cells: $0.2.map { Int($0) }, can: Game.defaultCan(), weight: 1) }
+        s.players = (1...11).map { i in
+            Player(id: Game.newID(), name: "Player \(i)", cells: [], can: Game.defaultCan(), weight: 1)
+        }
         return s
     }
 }

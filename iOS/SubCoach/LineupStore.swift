@@ -133,7 +133,7 @@ final class LineupStore {
         var t = team
         let base = currentLineup
         t.lineups.append(SavedLineup(id: id, name: name, updated: .now,
-                                     perHalf: base?.perHalf ?? 3, halfMinutes: base?.halfMinutes ?? Game.defaultHalfMinutes))
+                                     perHalf: base?.perHalf ?? Game.defaultPerHalf, halfMinutes: base?.halfMinutes ?? Game.defaultHalfMinutes))
         t.currentID = id
         undoStack.removeAll()
         setTeam(t)
