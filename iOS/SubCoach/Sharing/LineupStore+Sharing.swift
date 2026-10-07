@@ -73,7 +73,12 @@ extension LineupStore {
     private static let followGiveUp: TimeInterval = 60
 
     private func checkFollowedBroadcast() {
-        guard let f = following, !f.ended else { followedMissingSince = nil; return }
+        guard let f = following else { followedMissingSince = nil; return }
+        if f.ended {
+            // Game Day shows "ended" until it's closed; otherwise there's nothing left to follow.
+            if !presentGameDay { stopFollowing() }
+            return
+        }
         if liveBroadcasts[f.offer.session] != nil {
             followedMissingSince = nil
         } else if let since = followedMissingSince {
@@ -89,7 +94,7 @@ extension LineupStore {
 
     /// Is this the lineup of the game being followed?
     func isFollowedLineup(_ l: SavedLineup?) -> Bool {
-        guard let f = following, let link = l?.broadcast else { return false }
+        guard let f = following, !f.ended, let link = l?.broadcast else { return false }
         return link.session == f.offer.session || link.hostLineupID == f.offer.lineup.id
     }
 
@@ -241,7 +246,11 @@ extension LineupStore {
                 saveFollowing()
                 storeBroadcastLineup(g, hostName: bundle.hostName, hostID: bundle.hostID, select: false)
                 refreshGameOutputs()
-                if g.ended { shareClient.drop(peer) } // the host is done; don't keep the connection
+                if g.ended {
+                    shareClient.drop(peer) // the host is done; don't keep the connection
+                    // Nothing more to follow. If Game Day is open it shows "ended" until closed.
+                    if !presentGameDay { stopFollowing() }
+                }
             } else if !g.ended, !handledSessions.contains(g.session), pendingGame == nil, following == nil || following?.ended == true {
                 // Not while following a game: another coach broadcasting nearby (say, the other
                 // team's) shouldn't interrupt with a popup mid-game.
