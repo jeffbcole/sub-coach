@@ -40,5 +40,6 @@ struct PendingGame: Equatable {
     var offer: GameOffer
     var hostName: String
     var peer: UUID
-    var sentAt: Date
+    /// Measured when the offer arrived (not when Follow was tapped).
+    var clockOffset: TimeInterval
 }

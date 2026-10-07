@@ -106,12 +106,14 @@ extension LineupStore {
     }
 
     private func publish() {
-        let bundle = ShareBundle(hostID: Coach.id, hostName: Coach.displayName, sentAt: .now,
-                                 roster: sharingRoster, game: currentGameOffer() ?? endedBroadcast)
-        if bundle.roster == nil && bundle.game == nil {
+        let roster = sharingRoster, game = currentGameOffer() ?? endedBroadcast
+        if roster == nil && game == nil {
             shareHost.stop()
-        } else if let data = Framer.encode(bundle) {
-            shareHost.publish(data)
+            return
+        }
+        // Stamped when actually sent, which may be later for a coach who connects afterwards.
+        shareHost.publish {
+            Framer.encode(ShareBundle(hostID: Coach.id, hostName: Coach.displayName, sentAt: .now, roster: roster, game: game))
         }
     }
 
@@ -142,11 +144,11 @@ extension LineupStore {
                 if g.ended { shareClient.drop(peer) } // the host is done; don't keep the connection
             } else if !g.ended, !handledSessions.contains(g.session), pendingGame?.offer.session != g.session {
                 shareLog("game offer from \(bundle.hostName): \(g.lineup.displayName)")
-                pendingGame = PendingGame(offer: g, hostName: bundle.hostName, peer: peer, sentAt: bundle.sentAt)
+                pendingGame = PendingGame(offer: g, hostName: bundle.hostName, peer: peer, clockOffset: offset)
                 if debugFlag("shareDebugAutoAccept") { acceptGame() }
             } else if let p = pendingGame, p.offer.session == g.session {
                 // Keep the waiting popup's copy current; drop it if the broadcast ended.
-                if g.ended { pendingGame = nil } else { pendingGame?.offer = g; pendingGame?.sentAt = bundle.sentAt }
+                if g.ended { pendingGame = nil } else { pendingGame?.offer = g; pendingGame?.clockOffset = offset }
             }
         }
     }
@@ -176,7 +178,7 @@ extension LineupStore {
         pendingGame = nil
         markHandled(p.offer.session)
         following = FollowedGame(peer: p.peer, hostName: p.hostName, offer: p.offer,
-                                 clockOffset: Date.now.timeIntervalSince(p.sentAt), lastUpdate: .now)
+                                 clockOffset: p.clockOffset, lastUpdate: .now)
         shareClient.followed = p.peer
         saveFollowing()
         reply(.following, session: p.offer.session, to: p.peer)

@@ -11,22 +11,24 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     private var stream: CBMutableCharacteristic?
     private var serviceAdded = false
     private var wanted = false
-    private var current: Data?
+    /// Builds the bundle to send. Called at the moment of sending, so its timestamp is accurate
+    /// even for a coach who connects later (followers use it to line their clock up with ours).
+    private var current: (() -> Data?)?
     private var messageNumber: UInt16 = 0
     private var subscribers: [CBCentral] = []
     /// Pieces waiting to go out when Bluetooth's send buffer frees up.
     private var outbox: [(chunk: Data, to: [CBCentral]?)] = []
 
-    /// Start (or keep) advertising, and send this bundle to everyone connected.
-    func publish(_ data: Data) {
-        current = data
+    /// Start (or keep) advertising, and send the bundle to everyone connected.
+    func publish(_ makeData: @escaping () -> Data?) {
+        current = makeData
         wanted = true
         if manager == nil {
             manager = CBPeripheralManager(delegate: self, queue: nil)
         } else {
             setUp()
         }
-        send(data, to: nil)
+        if let data = makeData() { send(data, to: nil) }
     }
 
     func stop() {
@@ -108,7 +110,7 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
         if !subscribers.contains(where: { $0.identifier == central.identifier }) { subscribers.append(central) }
         log("host: coach connected (\(subscribers.count))")
-        if let current { send(current, to: [central]) }
+        if let data = current?() { send(data, to: [central]) }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
