@@ -206,6 +206,17 @@ extension LineupStore {
             if debugFlag("shareDebugAutoAccept") { acceptRoster() }
         }
 
+        if let g = bundle.game, let f = following, f.offer.session != g.session,
+           f.hostID.map({ $0 == bundle.hostID }) ?? (f.hostName == bundle.hostName) {
+            // The coach we were following started a new broadcast (the old one ended while we
+            // weren't listening). Let go of the old one so the new one can be followed.
+            shareLog("\(bundle.hostName) started a new broadcast; dropping the old follow")
+            following = nil
+            shareClient.followed = nil
+            saveFollowing()
+            refreshGameOutputs()
+        }
+
         if let g = bundle.game {
             if g.ended {
                 liveBroadcasts[g.session] = nil
@@ -245,7 +256,7 @@ extension LineupStore {
 
         // While following a game, don't stay connected to other coaches who are sharing
         // (say, the other team's) unless they're offering a roster.
-        if let f = following, !f.ended, peer != f.peer, bundle.game?.session != f.offer.session, pendingRoster?.peer != peer {
+        if let f = following, !f.ended, peer != f.peer, bundle.hostID != f.hostID, bundle.game?.session != f.offer.session, pendingRoster?.peer != peer {
             shareClient.drop(peer)
         }
     }
@@ -285,7 +296,7 @@ extension LineupStore {
 
     /// Follow a broadcast: save (or refresh) its lineup in this coach's list, open it, and show Game Day.
     func follow(_ b: LiveBroadcast) {
-        following = FollowedGame(peer: b.peer, hostName: b.hostName, offer: b.offer,
+        following = FollowedGame(peer: b.peer, hostName: b.hostName, hostID: b.hostID, offer: b.offer,
                                  clockOffset: b.clockOffset, lastUpdate: .now)
         shareClient.followed = b.peer
         saveFollowing()
@@ -300,8 +311,24 @@ extension LineupStore {
     /// Keep a copy of the broadcast's lineup in this coach's saved lineups, updated as the host changes it.
     private func storeBroadcastLineup(_ g: GameOffer, hostName: String, hostID: String, select: Bool) {
         // One entry per host lineup: a restarted broadcast of the same lineup updates it.
-        let id = "bc-\(hostID.prefix(8))-\(g.lineup.id)"
+        var id = "bc-\(hostID.prefix(8))-\(g.lineup.id)"
         var t = team
+        let defaultName = "\(g.lineup.displayName) (\(hostName))"
+        func isSame(_ l: SavedLineup) -> Bool {
+            guard let link = l.broadcast, link.hostID == hostID else { return false }
+            if let hl = link.hostLineupID { return hl == g.lineup.id }
+            return l.name == defaultName // saved by an earlier build
+        }
+        let matches = t.lineups.filter(isSame)
+        if let keep = matches.first(where: { $0.id == id }) ?? matches.first(where: { $0.id == t.currentID }) ?? matches.first {
+            id = keep.id
+            // Merge duplicates left by earlier builds into one entry.
+            let extra = Set(matches.map(\.id)).subtracting([id])
+            if !extra.isEmpty {
+                t.lineups.removeAll { extra.contains($0.id) }
+                if extra.contains(t.currentID) { t.currentID = id }
+            }
+        }
         // Bring along any of the host's players this coach's roster doesn't have yet.
         for p in g.players where !t.roster.contains(where: { $0.id == p.id }) { t.roster.append(p) }
         var l = g.lineup
@@ -314,7 +341,7 @@ extension LineupStore {
             if l != existing { l.updated = .now }
             t.lineups[i] = l
         } else {
-            l.name = "\(g.lineup.displayName) (\(hostName))"
+            l.name = defaultName
             l.updated = .now
             t.lineups.append(l)
         }

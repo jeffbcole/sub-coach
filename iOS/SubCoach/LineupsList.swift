@@ -11,8 +11,9 @@ struct LineupsList: View {
     @State private var deleting: SavedLineup?
 
     var body: some View {
+        // Only broadcasts not already in the coach's lineups; saved ones are marked live on their row.
         let live = store.liveBroadcasts.values
-            .filter { !$0.offer.ended }
+            .filter { b in !b.offer.ended && !store.team.lineups.contains { $0.broadcast?.matches(b) == true } }
             .sorted { $0.hostName < $1.hostName }
         List {
             if !live.isEmpty {

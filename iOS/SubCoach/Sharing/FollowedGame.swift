@@ -5,6 +5,8 @@ struct FollowedGame: Codable, Equatable {
     /// Bluetooth identity of the host's phone, used to reconnect.
     var peer: UUID
     var hostName: String
+    /// The host coach's id (missing for follows saved by earlier builds).
+    var hostID: String?
     var offer: GameOffer
     /// Add to the host's times to get this phone's times (phone clocks can differ by a few seconds).
     var clockOffset: TimeInterval
