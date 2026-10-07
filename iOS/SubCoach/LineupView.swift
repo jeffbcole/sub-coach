@@ -26,8 +26,6 @@ struct LineupView: View {
                     VStack(spacing: 10) { gameButton; autofillButton(s) }
                 }
 
-                summary(s)
-
                 if s.players.isEmpty {
                     ContentUnavailableView {
                         Label("No players yet", systemImage: "person.3")
@@ -38,6 +36,7 @@ struct LineupView: View {
                     }
                 } else {
                     grid(s)
+                    summary(s)
                 }
 
                 GameSetupSection()
