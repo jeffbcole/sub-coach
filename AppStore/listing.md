@@ -9,8 +9,8 @@
 
 Icon: done (AppStore/make-icon.swift draws it; standard, dark and tinted).
 
-Privacy policy URL: https://jeffbcole.github.io/sub-coach/privacy.html
-Support URL: https://jeffbcole.github.io/sub-coach/support.html
-Marketing URL: https://jeffbcole.github.io/sub-coach/
+Privacy policy URL: https://cribbageclassic.com/sub-coach/privacy.html
+Support URL: https://cribbageclassic.com/sub-coach/support.html
+Marketing URL: https://cribbageclassic.com/sub-coach/
 
 Still to do: description, keywords, screenshots, category, age rating.
