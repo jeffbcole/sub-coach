@@ -28,7 +28,7 @@ Raw captures in *-raw; re-frame with: swift AppStore/make-screenshots.swift <raw
 | Secondary category | Productivity |
 | Age rating | 4+ (answer "None" / "No" to every questionnaire item) |
 | Kids category | Not in Kids category |
-| Price | (to decide) |
+| Price | Free (set in App Store Connect → Pricing and Availability) |
 | App Privacy | Data Not Collected |
 | Encryption | No non-exempt encryption (set in Info.plist, so uploads skip the question) |
 | Copyright | 2026 Games By Post LLC |
