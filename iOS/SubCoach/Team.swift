@@ -79,6 +79,15 @@ struct BroadcastLink: Codable, Equatable {
     var session: String
     var hostID: String
     var hostName: String
+    /// The host's own id for the lineup, so re-broadcasting it updates this entry. (Missing in
+    /// lineups saved by earlier builds.)
+    var hostLineupID: String?
+
+    /// Is this broadcast (possibly restarted) of the same lineup?
+    func matches(_ b: LiveBroadcast) -> Bool {
+        if let hostLineupID { return b.hostID == hostID && b.offer.lineup.id == hostLineupID }
+        return b.offer.session == session
+    }
 }
 
 /// Everything the app saves: the roster plus all saved lineups.

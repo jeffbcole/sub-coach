@@ -114,11 +114,14 @@ struct LineupView: View {
     private var gameButton: some View {
         let gameID = store.gameLineupID
         let otherGame = gameID.flatMap { id in id == store.team.currentID ? nil : store.team.lineup(id) }
-        let followed = store.following
+        // "Following" only on the followed game's own lineup; other lineups work as usual.
+        let followed = store.isFollowedLineup(store.currentLineup) ? store.following : nil
         // This lineup came from a broadcast that's live nearby: offer to follow it (again).
         let live = followed == nil ? store.liveBroadcast(for: store.currentLineup) : nil
         return Button {
             if let live { store.follow(live); return }
+            // Running your own game means no longer following someone else's.
+            if followed == nil, store.isFollowing { store.stopFollowing() }
             if followed == nil, let otherGame { store.selectLineup(otherGame.id) }
             store.presentGameDay = true
         } label: {

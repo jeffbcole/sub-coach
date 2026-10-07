@@ -35,6 +35,9 @@ final class LineupStore {
     var following: FollowedGame?
     /// Receiver: broadcasts currently heard nearby, by session (whether followed or not).
     var liveBroadcasts: [String: LiveBroadcast] = [:]
+    /// Receiver: when the followed broadcast was last missing from range, while the app was open.
+    var followedMissingSince: Date?
+    var followCheckTimer: Timer?
     /// Receiver: shares and broadcasts already answered, so nobody is asked twice.
     var handledSessions: [String] = []
 

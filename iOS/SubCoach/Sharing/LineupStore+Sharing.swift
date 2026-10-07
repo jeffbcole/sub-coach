@@ -59,6 +59,38 @@ extension LineupStore {
     func setAppActive(_ active: Bool) {
         shareClient.setActive(active)
         if active { refreshLiveActivity() }
+        // While open, stop following a broadcast that can't be heard any more (it may have ended
+        // while this phone wasn't listening). Not while locked: a coach briefly out of range mid-game
+        // should keep getting alerts.
+        followCheckTimer?.invalidate()
+        followedMissingSince = nil
+        guard active else { return }
+        followCheckTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkFollowedBroadcast() }
+        }
+    }
+
+    private static let followGiveUp: TimeInterval = 60
+
+    private func checkFollowedBroadcast() {
+        guard let f = following, !f.ended else { followedMissingSince = nil; return }
+        if liveBroadcasts[f.offer.session] != nil {
+            followedMissingSince = nil
+        } else if let since = followedMissingSince {
+            if Date.now.timeIntervalSince(since) > Self.followGiveUp {
+                shareLog("\(f.hostName)'s broadcast not heard for a minute; stopped following")
+                stopFollowing()
+                followedMissingSince = nil
+            }
+        } else {
+            followedMissingSince = .now
+        }
+    }
+
+    /// Is this the lineup of the game being followed?
+    func isFollowedLineup(_ l: SavedLineup?) -> Bool {
+        guard let f = following, let link = l?.broadcast else { return false }
+        return link.session == f.offer.session || link.hostLineupID == f.offer.lineup.id
     }
 
     // MARK: Host: share roster
@@ -247,8 +279,8 @@ extension LineupStore {
 
     /// The live broadcast a lineup came from, if it can be heard right now.
     func liveBroadcast(for lineup: SavedLineup?) -> LiveBroadcast? {
-        guard let link = lineup?.broadcast, let live = liveBroadcasts[link.session], !live.offer.ended else { return nil }
-        return live
+        guard let link = lineup?.broadcast else { return nil }
+        return liveBroadcasts.values.first { !$0.offer.ended && link.matches($0) }
     }
 
     /// Follow a broadcast: save (or refresh) its lineup in this coach's list, open it, and show Game Day.
@@ -267,13 +299,14 @@ extension LineupStore {
 
     /// Keep a copy of the broadcast's lineup in this coach's saved lineups, updated as the host changes it.
     private func storeBroadcastLineup(_ g: GameOffer, hostName: String, hostID: String, select: Bool) {
-        let id = "bc-" + g.session
+        // One entry per host lineup: a restarted broadcast of the same lineup updates it.
+        let id = "bc-\(hostID.prefix(8))-\(g.lineup.id)"
         var t = team
         // Bring along any of the host's players this coach's roster doesn't have yet.
         for p in g.players where !t.roster.contains(where: { $0.id == p.id }) { t.roster.append(p) }
         var l = g.lineup
         l.id = id
-        l.broadcast = BroadcastLink(session: g.session, hostID: hostID, hostName: hostName)
+        l.broadcast = BroadcastLink(session: g.session, hostID: hostID, hostName: hostName, hostLineupID: g.lineup.id)
         if let i = t.lineups.firstIndex(where: { $0.id == id }) {
             let existing = t.lineups[i]
             l.name = existing.name // keep any rename

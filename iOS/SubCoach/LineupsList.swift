@@ -11,26 +11,19 @@ struct LineupsList: View {
     @State private var deleting: SavedLineup?
 
     var body: some View {
+        let live = store.liveBroadcasts.values
+            .filter { !$0.offer.ended }
+            .sorted { $0.hostName < $1.hostName }
         List {
-            ForEach(store.sortedLineups) { l in
-                Button {
-                    store.selectLineup(l.id)
-                    onOpen()
-                } label: {
-                    row(l)
+            if !live.isEmpty {
+                Section("Live nearby") {
+                    ForEach(live, id: \.offer.session) { b in liveRow(b) }
                 }
-                .buttonStyle(.plain)
-                .swipeActions(edge: .trailing) {
-                    Button { deleting = l } label: { Label("Delete", systemImage: "trash") }
-                        .tint(.red)
-                    Button { store.duplicateLineup(l.id); onOpen() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-                        .tint(.blue)
-                }
-                .contextMenu {
-                    Button { startRename(l) } label: { Label("Rename", systemImage: "pencil") }
-                    Button { store.duplicateLineup(l.id); onOpen() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-                    Button(role: .destructive) { deleting = l } label: { Label("Delete", systemImage: "trash") }
-                }
+            }
+            Section {
+                lineupRows
+            } header: {
+                if !live.isEmpty { Text("Lineups") }
             }
         }
         .navigationTitle("Lineups")
@@ -46,6 +39,52 @@ struct LineupsList: View {
             }
         }
         .confirmDelete($deleting)
+    }
+
+    private var lineupRows: some View {
+        ForEach(store.sortedLineups) { l in
+            Button {
+                store.selectLineup(l.id)
+                onOpen()
+            } label: {
+                row(l)
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing) {
+                Button { deleting = l } label: { Label("Delete", systemImage: "trash") }
+                    .tint(.red)
+                Button { store.duplicateLineup(l.id); onOpen() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+                    .tint(.blue)
+            }
+            .contextMenu {
+                Button { startRename(l) } label: { Label("Rename", systemImage: "pencil") }
+                Button { store.duplicateLineup(l.id); onOpen() } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
+                Button(role: .destructive) { deleting = l } label: { Label("Delete", systemImage: "trash") }
+            }
+        }
+    }
+
+    /// A game another coach is broadcasting nearby: follow it (or get back to it if already following).
+    private func liveRow(_ b: LiveBroadcast) -> some View {
+        let isFollowed = store.following?.offer.session == b.offer.session
+        return HStack(spacing: 12) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundStyle(.blue)
+                .symbolEffect(.variableColor.iterative)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(b.offer.lineup.displayName).font(.headline)
+                Text("\(b.hostName) is broadcasting").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button(isFollowed ? "Open" : "Follow") {
+                if isFollowed { store.presentGameDay = true } else { store.follow(b) }
+                onOpen()
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            .controlSize(.small)
+        }
+        .padding(.vertical, 4)
     }
 
     private func startRename(_ l: SavedLineup) {
