@@ -13,6 +13,10 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     private var reassemblers: [UUID: Reassembler] = [:]
     private var replyCharacteristics: [UUID: CBCharacteristic] = [:]
     private var active = false
+    /// Phones that were found but turned out not to be sharing (a stale advertisement).
+    /// Left alone briefly instead of reconnecting in a tight loop.
+    private var notSharingUntil: [UUID: Date] = [:]
+    private static let retryDelay: TimeInterval = 4
 
     /// The host whose game we're following, if any. Kept connected in the background.
     var followed: UUID? {
@@ -83,6 +87,7 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         guard active, peers[peripheral.identifier]?.state != .connected, peripheral.state == .disconnected else { return }
+        if let until = notSharingUntil[peripheral.identifier], until > .now { return }
         log("client found host \(peripheral.identifier.uuidString.prefix(4))")
         adopt(peripheral)
         central.connect(peripheral)
@@ -120,9 +125,12 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard let s = peripheral.services?.first(where: { $0.uuid == ShareBLE.service }) else {
+            log("client: \(peripheral.identifier.uuidString.prefix(4)) isn't sharing; retry in \(Int(Self.retryDelay))s")
+            notSharingUntil[peripheral.identifier] = Date.now.addingTimeInterval(Self.retryDelay)
             manager?.cancelPeripheralConnection(peripheral)
             return
         }
+        notSharingUntil[peripheral.identifier] = nil
         peripheral.discoverCharacteristics([ShareBLE.stream, ShareBLE.reply], for: s)
     }
 
