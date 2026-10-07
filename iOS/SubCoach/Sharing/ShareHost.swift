@@ -74,7 +74,9 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
         let targets = centrals ?? subscribers
         guard stream != nil, !targets.isEmpty else { return }
         messageNumber &+= 1
-        let packet = targets.map(\.maximumUpdateValueLength).min() ?? 180
+        // Pieces addressed to everyone also reach a coach who connects mid-send, so stay within a
+        // size every iPhone and iPad accepts (182 bytes) rather than the current coaches' maximum.
+        let packet = min(182, targets.map(\.maximumUpdateValueLength).min() ?? 182)
         for c in Framer.chunks(data, message: messageNumber, maxPacket: packet) { outbox.append((c, centrals)) }
         log("host sending \(data.count) bytes to \(targets.count) coach(es)")
         flush()

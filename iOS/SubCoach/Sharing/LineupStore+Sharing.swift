@@ -123,7 +123,9 @@ extension LineupStore {
         guard bundle.hostID != Coach.id else { return }
         let offset = Date.now.timeIntervalSince(bundle.sentAt)
 
-        if let r = bundle.roster, !handledSessions.contains(r.session), pendingRoster?.offer.session != r.session {
+        // One popup at a time: if two coaches nearby share at once, the second waits instead of
+        // replacing the first while it's on screen.
+        if let r = bundle.roster, !handledSessions.contains(r.session), pendingRoster == nil {
             shareLog("roster offer from \(bundle.hostName): \(r.players.count) players")
             pendingRoster = PendingRoster(offer: r, hostName: bundle.hostName, peer: peer)
             reply(.received, session: r.session, to: peer)
@@ -142,7 +144,9 @@ extension LineupStore {
                 saveFollowing()
                 refreshGameOutputs()
                 if g.ended { shareClient.drop(peer) } // the host is done; don't keep the connection
-            } else if !g.ended, !handledSessions.contains(g.session), pendingGame?.offer.session != g.session {
+            } else if !g.ended, !handledSessions.contains(g.session), pendingGame == nil, following == nil || following?.ended == true {
+                // Not while following a game: another coach broadcasting nearby (say, the other
+                // team's) shouldn't interrupt with a popup mid-game.
                 shareLog("game offer from \(bundle.hostName): \(g.lineup.displayName)")
                 pendingGame = PendingGame(offer: g, hostName: bundle.hostName, peer: peer, clockOffset: offset)
                 if debugFlag("shareDebugAutoAccept") { acceptGame() }
