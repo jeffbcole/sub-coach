@@ -16,7 +16,7 @@ struct SubCoachApp: App {
             RootView()
             .environment(store)
             .tint(Theme.accent)
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase, initial: true) { _, phase in
                 // Listens for nearby coaches while open; catches the countdown up when back from the lock screen.
                 store.setAppActive(phase == .active)
             }

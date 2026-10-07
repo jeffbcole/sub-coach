@@ -17,6 +17,11 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     /// Left alone briefly instead of reconnecting in a tight loop.
     private var notSharingUntil: [UUID: Date] = [:]
     private static let retryDelay: TimeInterval = 4
+    private static let connectTimeout: TimeInterval = 10
+    /// While open, the scan is restarted this often: a long-running scan can fail to notice a
+    /// phone that starts sharing after it began, while a fresh scan finds it right away.
+    private static let rescanInterval: TimeInterval = 4
+    private var rescanTimer: Timer?
 
     /// The host whose game we're following, if any. Kept connected in the background.
     var followed: UUID? {
@@ -31,11 +36,14 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
 
     /// App came to the front or went to the background.
     func setActive(_ on: Bool) {
+        log("client active \(on) (bluetooth state \(manager?.state.rawValue ?? -1))")
         active = on
         guard let manager, manager.state == .poweredOn else { return }
         if on {
             scan()
         } else {
+            rescanTimer?.invalidate()
+            rescanTimer = nil
             manager.stopScan()
             for (id, p) in peers where id != followed { manager.cancelPeripheralConnection(p) }
         }
@@ -52,8 +60,22 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
         p.writeValue(data, for: c, type: .withResponse)
     }
 
+    /// Scan for coaches who are sharing, and keep restarting the scan while the app is open.
     private func scan() {
-        manager?.scanForPeripherals(withServices: [ShareBLE.service], options: nil)
+        log("client scanning")
+        restartScan()
+        rescanTimer?.invalidate()
+        rescanTimer = Timer.scheduledTimer(withTimeInterval: Self.rescanInterval, repeats: true) { [weak self] _ in
+            guard let self, self.active else { return }
+            self.restartScan()
+        }
+    }
+
+    private func restartScan() {
+        guard let manager, manager.state == .poweredOn else { return }
+        manager.stopScan()
+        manager.scanForPeripherals(withServices: [ShareBLE.service],
+                                   options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
 
     private func ensureConnected(_ id: UUID) {
@@ -80,6 +102,13 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log("client bluetooth state \(central.state.rawValue)")
         guard central.state == .poweredOn else { return }
+        // iOS can keep sharing connections alive after the app quits. Close any that aren't the
+        // followed game; left open, they stop the two phones from seeing each other.
+        for p in central.retrieveConnectedPeripherals(withServices: [ShareBLE.service]) where p.identifier != followed {
+            log("client closing leftover connection \(p.identifier.uuidString.prefix(4))")
+            adopt(p)
+            central.cancelPeripheralConnection(p)
+        }
         if let followed { ensureConnected(followed) }
         if active { scan() }
     }
@@ -91,6 +120,13 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
         log("client found host \(peripheral.identifier.uuidString.prefix(4))")
         adopt(peripheral)
         central.connect(peripheral)
+        // Connection attempts never time out on their own; give up if the other phone doesn't answer.
+        let id = peripheral.identifier
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectTimeout) { [weak self] in
+            guard let self, id != self.followed, let p = self.peers[id], p.state == .connecting else { return }
+            self.log("client gave up connecting to \(id.uuidString.prefix(4))")
+            self.manager?.cancelPeripheralConnection(p)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {

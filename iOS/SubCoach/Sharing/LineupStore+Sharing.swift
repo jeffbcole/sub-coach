@@ -139,7 +139,7 @@ extension LineupStore {
                 shareLog("game update rev \(g.rev)\(g.ended ? " (ended)" : "") phase \(g.clock.phase.rawValue) half \(g.clock.half)")
                 saveFollowing()
                 refreshGameOutputs()
-                if g.ended { shareClient.followed = nil }
+                if g.ended { shareClient.drop(peer) } // the host is done; don't keep the connection
             } else if !g.ended, !handledSessions.contains(g.session), pendingGame?.offer.session != g.session {
                 shareLog("game offer from \(bundle.hostName): \(g.lineup.displayName)")
                 pendingGame = PendingGame(offer: g, hostName: bundle.hostName, peer: peer, sentAt: bundle.sentAt)

@@ -36,6 +36,11 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
         subscribers.removeAll()
         manager?.stopAdvertising()
         manager?.removeAllServices()
+        // Let go of the Bluetooth session completely. If the app is later killed while still
+        // holding one, iOS can leave it behind and the next launch can't advertise until the
+        // phone restarts. A fresh session is opened the next time sharing starts.
+        manager?.delegate = nil
+        manager = nil
         serviceAdded = false
         stream = nil
         log("host stopped")
@@ -57,8 +62,10 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     }
 
     private func advertise() {
-        manager?.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [ShareBLE.service],
-                                   CBAdvertisementDataLocalNameKey: "Sub Coach"])
+        // Only the service ID: a 128-bit ID (18 bytes) plus a name doesn't fit in the 31-byte
+        // advertisement, and iOS then sometimes drops the ID, so coaches can't find each other.
+        // The coach's name travels in the shared data instead.
+        manager?.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [ShareBLE.service]])
     }
 
     private func send(_ data: Data, to centrals: [CBCentral]?) {
