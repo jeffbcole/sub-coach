@@ -285,6 +285,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Sub Coach";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_FILE = "SubCoach-Info.plist";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sub Coach uses Bluetooth to share your roster and live games with other coaches standing nearby.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -318,6 +319,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Sub Coach";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_FILE = "SubCoach-Info.plist";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sub Coach uses Bluetooth to share your roster and live games with other coaches standing nearby.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
