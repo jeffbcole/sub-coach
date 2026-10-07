@@ -2,13 +2,14 @@
 // Usage: swift make-screenshots.swift <raw dir> <out dir>
 import AppKit
 
-let captions: [(file: String, title: String, sub: String)] = [
-    ("1-lineup", "Fair rotations\nin one tap", "Even playing time, longer bench stretches"),
-    ("2-attendance", "Plan for who's\nactually there", "Tick off who made it to the game"),
-    ("3-gameday", "Know exactly\nwhen to sub", "Who goes on, who comes off"),
-    ("4-lock", "Sub alerts on\nyour lock screen", "Keep your phone in your pocket"),
-    ("5-roster", "The positions each\nplayer can play", "Auto-fill only uses what you turn on"),
-    ("6-settings", "Any team size,\nany formation", "4 to 11 players, any half length"),
+/// Headlines by screen; raw files are named "<order>-<screen>.png", e.g. "3-gameday.png".
+let captions: [String: (title: String, sub: String)] = [
+    "lineup": ("Fair rotations\nin one tap", "Even playing time, longer bench stretches"),
+    "attendance": ("Plan for who's\nactually there", "Tick off who made it to the game"),
+    "gameday": ("Know exactly\nwhen to sub", "Who goes on, who comes off"),
+    "lock": ("Sub alerts on\nyour lock screen", "Keep your phone in your pocket"),
+    "roster": ("The positions each\nplayer can play", "Auto-fill only uses what you turn on"),
+    "settings": ("Any team size,\nany formation", "4 to 11 players, any half length"),
 ]
 let args = CommandLine.arguments
 let rawDir = args[1], outDir = args[2]
@@ -17,8 +18,13 @@ func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
 }
 
-for c in captions {
-    guard let src = NSImage(contentsOfFile: "\(rawDir)/\(c.file).png"),
+let files = (try! FileManager.default.contentsOfDirectory(atPath: rawDir)).filter { $0.hasSuffix(".png") }.sorted()
+for name in files {
+    let file = String(name.dropLast(4))
+    guard let screen = file.split(separator: "-", maxSplits: 1).last, let c = captions[String(screen)] else {
+        print("no headline for \(name), skipped"); continue
+    }
+    guard let src = NSImage(contentsOfFile: "\(rawDir)/\(name)"),
           let shot = src.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
     let W = CGFloat(shot.width), H = CGFloat(shot.height)
     let ctx = CGContext(data: nil, width: Int(W), height: Int(H), bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -29,7 +35,8 @@ for c in captions {
     for i in stride(from: 0, to: 10, by: 2) { ctx.fill(CGRect(x: 0, y: CGFloat(i) * H / 10, width: W, height: H / 10)) }
 
     // Headline and subhead.
-    let scale = W / 1320
+    // 1 on iPhone (1320 x 2868); a little larger on iPad's wider page.
+    let scale = (W / 1320 + H / 2868) / 2
     NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
     let para = NSMutableParagraphStyle(); para.alignment = .center; para.lineSpacing = 4 * scale
     let title = NSAttributedString(string: c.title, attributes: [
@@ -58,6 +65,6 @@ for c in captions {
     ctx.addPath(path); ctx.setStrokeColor(rgb(0xFFFFFF, 0.25)); ctx.setLineWidth(4 * scale); ctx.strokePath()
 
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
-    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "\(outDir)/\(c.file).png"))
-    print("framed \(c.file)")
+    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "\(outDir)/\(name)"))
+    print("framed \(name)")
 }
