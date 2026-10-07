@@ -37,7 +37,6 @@ More detail, including a map of the source files, is in [iOS/README.md](iOS/READ
 | `iOS/` | The SwiftUI app, the lock screen widget extension, and code shared between them |
 | `docs/` | The website (GitHub Pages): home, support and privacy pages |
 | `AppStore/` | App Store listing notes and the script that draws the icon |
-| `soccer-lineup-planner.html` | The original single-page web version the app grew out of |
 
 ## Contributing
 

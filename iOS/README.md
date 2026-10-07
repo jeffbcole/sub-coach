@@ -1,6 +1,6 @@
 # Sub Coach: Soccer Lineups (iOS)
 
-Sub Coach — youth soccer lineup, substitution planner and game timer for coaches. Started as `../soccer-lineup-planner.html`. iPhone and iPad, iOS 17+.
+Sub Coach — youth soccer lineup, substitution planner and game timer for coaches. iPhone and iPad, iOS 17+.
 
 ## Run it on your iPhone
 
