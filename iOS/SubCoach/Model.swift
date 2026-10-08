@@ -32,6 +32,11 @@ struct Player: Codable, Identifiable, Equatable {
     /// Auto-fill can use her: she's here and has at least one position turned on.
     var isAvailable: Bool { !absent && can.contains(true) }
     var periodsPlayed: Int { cells.compactMap { $0 }.count }
+
+    /// Position in a period, nil when benched or past the end of the plan. Views use this because
+    /// a cell being removed (fewer periods or positions) can still redraw once against the new plan.
+    func cell(_ period: Int) -> Int? { cells.indices.contains(period) ? cells[period] : nil }
+    func canPlay(_ pos: Int) -> Bool { can.indices.contains(pos) && can[pos] }
 }
 
 extension LineupState {

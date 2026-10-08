@@ -63,7 +63,7 @@ enum PrintSheet {
                         GridRow {
                             cell(pl.name, leading: true, bold: true)
                             ForEach(0..<s.periods, id: \.self) { p in
-                                let c = pl.cells[p]
+                                let c = pl.cell(p)
                                 cell(c.map { s.positionName($0) } ?? "bench", dim: c == nil, halfLine: p == s.perHalf)
                             }
                             cell("\(pl.periodsPlayed)")

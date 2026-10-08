@@ -276,7 +276,7 @@ struct LineupView: View {
             HStack(spacing: 2) {
                 ForEach(0..<s.periods, id: \.self) { p in
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(pl.cells[p] != nil ? Theme.accent : Theme.benchBG)
+                        .fill(pl.cell(p) != nil ? Theme.accent : Theme.benchBG)
                         .frame(width: s.periods > 6 ? 4 : 7, height: 4)
                         .padding(.leading, p == s.perHalf ? 3 : 0)
                 }
@@ -315,13 +315,13 @@ struct PositionCell: View {
 
     var body: some View {
         let s = store.state
-        let c = player.cells[period]
-        let dup = c.map { counts[$0] > 1 } ?? false
-        let off = c.map { !player.can[$0] } ?? false
+        let c = player.cell(period)
+        let dup = c.map { counts.indices.contains($0) && counts[$0] > 1 } ?? false
+        let off = c.map { !player.canPlay($0) } ?? false
         Menu {
             Picker("Position", selection: Binding(
-                get: { player.cells[period] },
-                set: { v in store.updatePlayer(player.id) { $0.cells[period] = v } })
+                get: { player.cell(period) },
+                set: { v in store.updatePlayer(player.id) { if $0.cells.indices.contains(period) { $0.cells[period] = v } } })
             ) {
                 Text("Bench").tag(Int?.none)
                 ForEach(0..<s.positionCount, id: \.self) { i in
@@ -348,9 +348,9 @@ struct PositionCell: View {
     /// e.g. "LD", "LD · Ava" when someone else is already there, "GK (off for her)".
     private func optionLabel(_ i: Int, _ s: LineupState) -> String {
         var t = s.positionName(i)
-        let others = s.players.filter { $0.id != player.id && $0.cells[period] == i }.map { $0.name.isEmpty ? "?" : $0.name }
+        let others = s.players.filter { $0.id != player.id && $0.cell(period) == i }.map { $0.name.isEmpty ? "?" : $0.name }
         if !others.isEmpty { t += " · " + others.joined(separator: ", ") }
-        if !player.can[i] { t += " (off for her)" }
+        if !player.canPlay(i) { t += " (off for her)" }
         return t
     }
 }
