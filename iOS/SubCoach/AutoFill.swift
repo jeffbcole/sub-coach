@@ -15,7 +15,7 @@ enum AutoFill {
     static let switchCost = 25.0         // per time a girl goes in or comes out mid-half
     static let balanceCost = 12.0        // per (difference between halves)²
     /// Per time a girl staying on moves to a new spot, with "Fewer position changes" on or off.
-    static let fewerMovesCost = 30.0, movesCost = 4.0
+    static let fewerMovesCost = 100.0, movesCost = 4.0
 
     static func run(_ st: inout LineupState, fewerMoves: Bool = true, restarts: Int = 100, steps: Int = 4000) {
         guard !st.players.isEmpty, restarts > 0 else { return }
