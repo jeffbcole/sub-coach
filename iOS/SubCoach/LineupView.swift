@@ -9,9 +9,13 @@ struct LineupView: View {
     @State private var showRoster = false
     @State private var naming: Naming?
     @State private var nameText = ""
+    @State private var gridWidth: CGFloat = 0
+    @State private var openSide: Edge.Set = []
 
     private let nameWidth: CGFloat = 112
-    private let cellWidth: CGFloat = 64
+    /// Period columns stretch to fit every period on screen when there's room (landscape,
+    /// iPad); otherwise they keep the usual width and the grid scrolls sideways.
+    private let usualCellWidth: CGFloat = 64, minCellWidth: CGFloat = 52, maxCellWidth: CGFloat = 88
     private let rowHeight: CGFloat = 48
     private let halfRowHeight: CGFloat = 26
     private let periodRowHeight: CGFloat = 40
@@ -53,6 +57,10 @@ struct LineupView: View {
             }
             .padding()
         }
+        // In landscape the phone keeps an empty margin on the side away from the camera
+        // just to match the camera side. Use it for the lineup.
+        .ignoresSafeArea(.container, edges: openSide)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in openSide = Self.sideAwayFromCamera() }
         .background(Color(.systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -86,6 +94,24 @@ struct LineupView: View {
         .lineupNameAlert($naming, text: $nameText) { _, name in
             if let id = store.currentLineup?.id { store.renameLineup(id, to: name) }
         }
+    }
+
+    /// The side away from the camera cutout when a phone with one is in landscape.
+    private static func sideAwayFromCamera() -> Edge.Set {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let window = scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first,
+              window.safeAreaInsets.left > 0, window.safeAreaInsets.right > 0 else { return [] }
+        switch scene.effectiveGeometry.interfaceOrientation {
+        case .landscapeRight: return .trailing // camera on the left
+        case .landscapeLeft: return .leading   // camera on the right
+        default: return []
+        }
+    }
+
+    private func columnWidth(_ s: LineupState) -> CGFloat {
+        let fit = (gridWidth - nameWidth - 8) / CGFloat(max(s.periods, 1))
+        return fit >= minCellWidth ? min(fit, maxCellWidth) : usualCellWidth
     }
 
     private func startRename() {
@@ -190,6 +216,7 @@ struct LineupView: View {
         // counts[period][position] = how many girls are in that spot
         var counts = Array(repeating: Array(repeating: 0, count: s.positionCount), count: s.periods)
         for pl in s.players { for (p, c) in pl.cells.enumerated() { if let c { counts[p][c] += 1 } } }
+        let cellWidth = columnWidth(s)
 
         return HStack(alignment: .top, spacing: 0) {
             // Sticky name column
@@ -215,8 +242,8 @@ struct LineupView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 0) {
-                        halfHeader("First half", s)
-                        halfHeader("Second half", s).overlay(alignment: .leading) { halfLine }
+                        halfHeader("First half", width: cellWidth * CGFloat(s.perHalf))
+                        halfHeader("Second half", width: cellWidth * CGFloat(s.perHalf)).overlay(alignment: .leading) { halfLine }
                     }
                     .frame(height: halfRowHeight)
                     HStack(spacing: 0) {
@@ -225,6 +252,7 @@ struct LineupView: View {
                                 Text("Period \(p + 1)").font(.caption.weight(.semibold))
                                 Text("from \(s.startAt(p % s.perHalf))").font(.caption2).foregroundStyle(.secondary)
                             }
+                            .lineLimit(1).minimumScaleFactor(0.8)
                             .frame(width: cellWidth, height: periodRowHeight)
                             .overlay(alignment: .leading) { if p == s.perHalf { halfLine } }
                         }
@@ -253,16 +281,17 @@ struct LineupView: View {
         }
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
         // The grid has fixed column widths, so cap text size here or headers get cut off.
         .dynamicTypeSize(...DynamicTypeSize.large)
     }
 
     private var halfLine: some View { Rectangle().fill(Color(.separator)).frame(width: 2) }
 
-    private func halfHeader(_ title: String, _ s: LineupState) -> some View {
+    private func halfHeader(_ title: String, width: CGFloat) -> some View {
         Text(title)
             .font(.subheadline.weight(.bold)).textCase(.uppercase)
-            .frame(width: cellWidth * CGFloat(s.perHalf))
+            .frame(width: width)
             .padding(.top, 6)
     }
 

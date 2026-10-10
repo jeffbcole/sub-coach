@@ -148,10 +148,23 @@ struct LineupState: Codable, Equatable {
     }
 
     /// A new install's sample team: 11 players and an empty plan (tap Auto-fill to build one).
+    /// Like a real team, most girls play one or two lines and only a couple keep goal.
     static func starter() -> LineupState {
+        // Positions in the standard formation: GK, LD, RD, LM, RM, LF, RF.
+        let keeper = [true, false, false, false, false, false, false]
+        let defense = [false, true, true, false, false, false, false]
+        let midfield = [false, false, false, true, true, false, false]
+        let forward = [false, false, false, false, false, true, true]
+        func or(_ lines: [Bool]...) -> [Bool] { (0..<7).map { i in lines.contains { $0[i] } } }
+        let positions = [
+            or(keeper, defense), or(keeper, midfield),
+            defense, defense, or(defense, midfield),
+            midfield, midfield, or(midfield, forward),
+            forward, forward, or(defense, midfield, forward),
+        ]
         var s = LineupState()
-        s.players = (1...11).map { i in
-            Player(id: Game.newID(), name: "Player \(i)", cells: [], can: Game.defaultCan(), weight: 1)
+        s.players = positions.enumerated().map { i, can in
+            Player(id: Game.newID(), name: "Player \(i + 1)", cells: [], can: can, weight: 1)
         }
         return s
     }

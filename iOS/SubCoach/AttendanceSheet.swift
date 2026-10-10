@@ -5,6 +5,7 @@ struct AttendanceSheet: View {
     @Environment(LineupStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var absent: Set<String> = []
+    @AppStorage("autofill.fewerMoves") private var fewerMoves = true
 
     var body: some View {
         let players = store.state.players
@@ -46,6 +47,9 @@ struct AttendanceSheet: View {
                         }
                     }
                 }
+                Section {
+                    Toggle("Fewer position changes", isOn: $fewerMoves)
+                }
             }
             .navigationTitle("Auto-fill")
             .navigationBarTitleDisplayMode(.inline)
@@ -64,7 +68,7 @@ struct AttendanceSheet: View {
                     store.update { s in
                         for i in s.players.indices { s.players[i].absent = out.contains(s.players[i].id) }
                     }
-                    store.autofill()
+                    store.autofill(fewerMoves: fewerMoves)
                     dismiss()
                 } label: {
                     Label("Build lineup with \(here.count) players", systemImage: "wand.and.stars")

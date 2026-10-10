@@ -4,17 +4,20 @@ import Foundation
 /// 1. A quick greedy pass picks the keepers and a fair first draft.
 /// 2. A search then trades blocks of periods between girls to cut down on subbing
 ///    in and out, so bench time comes in longer stretches.
-/// Ranked by, most important first: every position filled, fair playing time
-/// (adjusted by weight), few in/out changes within a half, similar time in each
+/// Ranked by, most important first: every position filled, no one-period stints in
+/// the middle of a half, fair playing time (adjusted by weight), few in/out changes
+/// within a half, few position changes for girls staying on, similar time in each
 /// half, then variety across defense / midfield / forward.
 enum AutoFill {
     static let unfilledCost = 1000.0
+    static let islandCost = 400.0        // per single period on the field mid-half (off before and after)
     static let fairnessCost = 60.0       // per (period off from fair share)²
     static let switchCost = 25.0         // per time a girl goes in or comes out mid-half
     static let balanceCost = 12.0        // per (difference between halves)²
-    static let positionChangeCost = 4.0  // staying on but moving to a new spot
+    /// Per time a girl staying on moves to a new spot, with "Fewer position changes" on or off.
+    static let fewerMovesCost = 30.0, movesCost = 4.0
 
-    static func run(_ st: inout LineupState, restarts: Int = 60, steps: Int = 2500) {
+    static func run(_ st: inout LineupState, fewerMoves: Bool = true, restarts: Int = 100, steps: Int = 4000) {
         guard !st.players.isEmpty, restarts > 0 else { return }
         let snapshot = st
         var results = [(cells: [[Int?]], score: Double)?](repeating: nil, count: restarts)
@@ -24,7 +27,7 @@ enum AutoFill {
         results.withUnsafeMutableBufferPointer { out in
             DispatchQueue.concurrentPerform(iterations: restarts) { i in
                 var rng = FastRandom()
-                var plan = Plan(snapshot, rng: &rng)
+                var plan = Plan(snapshot, moveCost: fewerMoves ? fewerMovesCost : movesCost, rng: &rng)
                 plan.improve(steps: steps, rng: &rng)
                 out[i] = plan.finish(rng: &rng)
             }
@@ -92,6 +95,14 @@ enum AutoFill {
 
         func holder(_ pos: Int) -> Int { let b = seats[pos]; return b == 0xFF ? -1 : Int(b) }
 
+        /// Seats a girl in an open spot she can play.
+        mutating func seat(_ x: Int, at pos: Int) -> Bool {
+            guard pos < size, masks[x] & (1 << pos) != 0, seats[pos] == 0xFF else { return false }
+            seats[pos] = UInt8(x)
+            count += 1
+            return true
+        }
+
         /// `order` lists positions in the order this girl would like them;
         /// `prefs` does the same for anyone who has to move.
         mutating func place(_ x: Int, order: [Int]? = nil, prefs: [[Int]]? = nil) -> Bool {
@@ -139,12 +150,15 @@ enum AutoFill {
         let gks: [Int]
         let fair: [Double]
         let avail: [Bool], fieldOk: [Bool]
+        let moveCost: Double
         var on: [[Bool]]          // [player][period], on the field (not in goal)
         var unfilled: [Int]       // per period
+        var moves: [Int]          // per half, girls staying on who change spots
         var playerCost: [Double]  // per player
         var score = 0.0
 
-        init(_ st: LineupState, rng: inout FastRandom) {
+        init(_ st: LineupState, moveCost: Double, rng: inout FastRandom) {
+            self.moveCost = moveCost
             let P = st.players
             n = P.count; periods = st.periods; perHalf = st.perHalf
             let m = P.map(AutoFill.mask), av = P.map(\.isAvailable), fo = m.map { $0 & AutoFill.fieldBits != 0 }
@@ -186,30 +200,51 @@ enum AutoFill {
                 for x in 0..<n where draft[x][p] { played[x] += 1 }
             }
             on = draft
-            unfilled = []; playerCost = []
-            unfilled = (0..<periods).map { periodUnfilled($0) }
+            unfilled = Array(repeating: 0, count: periods); moves = [0, 0]; playerCost = []
+            for h in 0..<2 { moves[h] = seatHalf(h) }
             playerCost = (0..<n).map { costOf($0) }
-            score = Double(unfilled.reduce(0, +)) * unfilledCost + playerCost.reduce(0, +)
+            score = Double(unfilled.reduce(0, +)) * unfilledCost + Double(moves.reduce(0, +)) * moveCost
+                + playerCost.reduce(0, +)
         }
 
         func playing(_ x: Int, _ p: Int) -> Bool { on[x][p] || gks[p / perHalf] == x }
 
-        func periodUnfilled(_ p: Int) -> Int {
-            var m = Matcher(masks: masks, size: size)
-            for x in 0..<n where on[x][p] { _ = m.place(x) }
-            return size - 1 - m.count + (gks[p / perHalf] < 0 ? 1 : 0)
+        /// Seats one half period by period the way `finish` does (girls staying on keep
+        /// their spot unless someone coming on can only fit there). Updates `unfilled`
+        /// for the half and returns how many times a girl staying on had to move.
+        mutating func seatHalf(_ h: Int) -> Int {
+            var seat = [Int](repeating: 0, count: n), moved = 0
+            for q in h * perHalf ..< (h + 1) * perHalf {
+                var m = Matcher(masks: masks, size: size)
+                for x in 0..<n where on[x][q] && seat[x] > 0 { _ = m.seat(x, at: seat[x]) }
+                for x in 0..<n where on[x][q] && seat[x] == 0 { _ = m.place(x) }
+                for x in 0..<n { if !on[x][q] { seat[x] = 0 } }
+                for pos in 1..<size {
+                    let x = m.holder(pos)
+                    guard x >= 0 else { continue }
+                    if seat[x] > 0 && seat[x] != pos { moved += 1 }
+                    seat[x] = pos
+                }
+                // Someone who didn't fit at all (spot count short) starts fresh next period.
+                for x in 0..<n where on[x][q] && seat[x] > 0 && m.holder(seat[x]) != x { seat[x] = 0 }
+                unfilled[q] = size - 1 - m.count + (gks[h] < 0 ? 1 : 0)
+            }
+            return moved
         }
 
         func costOf(_ x: Int) -> Double {
             guard avail[x] else { return 0 }
-            var played = 0, switches = 0, first = 0, second = 0
+            var played = 0, switches = 0, islands = 0, first = 0, second = 0
             for p in 0..<periods {
-                let a = playing(x, p)
+                let a = playing(x, p), j = p % perHalf
                 if a { played += 1; if p < perHalf { first += 1 } else { second += 1 } }
-                if p % perHalf != 0 && a != playing(x, p - 1) { switches += 1 }
+                if j != 0 && a != playing(x, p - 1) { switches += 1 }
+                // In for a single period with bench on both sides. One period at the
+                // start or end of a half is fine.
+                if a && j != 0 && j != perHalf - 1 && !playing(x, p - 1) && !playing(x, p + 1) { islands += 1 }
             }
             let d = Double(played) - fair[x]
-            var c = d * d * fairnessCost + Double(switches) * switchCost
+            var c = d * d * fairnessCost + Double(switches) * switchCost + Double(islands) * islandCost
             if x != gks[0] && x != gks[1] {
                 let b = Double(first - second)
                 c += b * b * balanceCost
@@ -241,15 +276,12 @@ enum AutoFill {
                     if Bool.random(using: &rng) { if ok(hi + 1) { hi += 1 } else if ok(lo - 1) { lo -= 1 } }
                     else { if ok(lo - 1) { lo -= 1 } else if ok(hi + 1) { hi += 1 } }
                 }
-                let oldX = playerCost[x], oldY = playerCost[y]
-                let oldUnfilled = Array(unfilled[lo...hi])
+                let oldX = playerCost[x], oldY = playerCost[y], oldMoves = moves[h]
+                let oldUnfilled = Array(unfilled[start..<end])
                 for q in lo...hi { on[x][q] = false; on[y][q] = true }
-                var delta = 0.0
-                for q in lo...hi {
-                    let u = periodUnfilled(q)
-                    delta += Double(u - unfilled[q]) * unfilledCost
-                    unfilled[q] = u
-                }
+                moves[h] = seatHalf(h)
+                var delta = Double(moves[h] - oldMoves) * moveCost
+                for q in start..<end { delta += Double(unfilled[q] - oldUnfilled[q - start]) * unfilledCost }
                 let newX = costOf(x), newY = costOf(y)
                 delta += newX - oldX + newY - oldY
                 if delta <= 0 || Double.random(in: 0..<1, using: &rng) < exp(-delta / temp) {
@@ -257,7 +289,8 @@ enum AutoFill {
                     score += delta
                 } else {
                     for q in lo...hi { on[x][q] = true; on[y][q] = false }
-                    unfilled.replaceSubrange(lo...hi, with: oldUnfilled)
+                    unfilled.replaceSubrange(start..<end, with: oldUnfilled)
+                    moves[h] = oldMoves
                 }
             }
         }
@@ -295,7 +328,8 @@ enum AutoFill {
                 }
             }
             let variety = grp.reduce(0) { $0 + $1[1] * $1[1] + $1[2] * $1[2] + $1[3] * $1[3] }
-            return (cells, score + Double(variety) + Double(changes) * positionChangeCost)
+            // The search estimated the moves; score what the final seating actually has.
+            return (cells, score + Double(variety) + Double(changes - moves.reduce(0, +)) * moveCost)
         }
     }
 }

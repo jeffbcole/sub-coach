@@ -327,7 +327,7 @@ final class LineupStore {
     private(set) var isAutoFilling = false
 
     /// Runs the search off the main thread so the screen stays responsive.
-    func autofill() {
+    func autofill(fewerMoves: Bool) {
         guard !isAutoFilling else { return }
         isAutoFilling = true
         let snapshot = state
@@ -335,7 +335,7 @@ final class LineupStore {
         Task {
             let filled = await Task.detached(priority: .userInitiated) { () -> LineupState in
                 var s = snapshot
-                AutoFill.run(&s)
+                AutoFill.run(&s, fewerMoves: fewerMoves)
                 return s
             }.value
             isAutoFilling = false
