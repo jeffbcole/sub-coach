@@ -220,6 +220,12 @@ final class LineupStore {
         return team.lineup(id) != nil ? id : nil
     }
 
+    /// The lineup whose game is under way: kicked off and not yet at full time.
+    func liveGameLineupID(at now: Date = .now) -> String? {
+        guard let id = gameLineupID, !clock.reading(at: now, gameState).gameOver else { return nil }
+        return id
+    }
+
     /// What Game Day, alerts and the lock screen show: the game's lineup, or the open one before kickoff.
     var gameState: LineupState {
         if let id = gameLineupID, id != team.currentID, let s = team.state(for: id) { return s }
@@ -275,6 +281,7 @@ final class LineupStore {
         setClock(GameClock(phase: .running, half: 1, startedAt: .now, lineupID: gameLineupID ?? team.currentID))
     }
 
+    /// Ends the game (in progress or finished) so any lineup can start a new one.
     func resetClock() {
         // A new game ends any broadcast of the old one.
         if broadcastSession != nil { setBroadcasting(false) }

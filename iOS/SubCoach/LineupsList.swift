@@ -95,7 +95,7 @@ struct LineupsList: View {
 
     private func row(_ l: SavedLineup) -> some View {
         let isOpen = l.id == store.team.currentID
-        let inGame = l.id == store.gameLineupID
+        let inGame = l.id == store.liveGameLineupID()
         let here = store.team.roster.count - l.absent.filter { id in store.team.roster.contains { $0.id == id } }.count
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
@@ -180,7 +180,7 @@ private struct ConfirmDeleteLineup: ViewModifier {
         ) { l in
             Button("Delete lineup", role: .destructive) { store.deleteLineup(l.id) }
         } message: { l in
-            Text(l.id == store.gameLineupID
+            Text(l.id == store.liveGameLineupID()
                  ? "This lineup's game is in progress; deleting it also stops the game clock. Your roster isn't affected."
                  : "This can't be undone. Your roster isn't affected.")
         }

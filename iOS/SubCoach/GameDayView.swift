@@ -4,7 +4,7 @@ import SwiftUI
 struct GameDayView: View {
     @Environment(LineupStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var confirmReset = false
+    @State private var confirmEnd = false
     @State private var askName = false
     @State private var nameText = ""
 
@@ -87,7 +87,7 @@ struct GameDayView: View {
                                 Button { store.adjustClock(by: -60) } label: { Label("Take off 1 minute", systemImage: "minus") }
                             }
                             Button { store.endHalfNow() } label: { Label("End half now", systemImage: "forward.end") }
-                            Button(role: .destructive) { confirmReset = true } label: { Label("Reset clock", systemImage: "arrow.counterclockwise") }
+                            Button(role: .destructive) { confirmEnd = true } label: { Label("End game", systemImage: "stop.fill") }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -97,8 +97,13 @@ struct GameDayView: View {
                     .accessibilityLabel("Clock options")
                 }
             }
-            .confirmationDialog("Reset the game clock?", isPresented: $confirmReset, titleVisibility: .visible) {
-                Button("Reset clock", role: .destructive) { store.resetClock() }
+            .confirmationDialog("End the game?", isPresented: $confirmEnd, titleVisibility: .visible) {
+                Button("End game", role: .destructive) {
+                    store.resetClock()
+                    dismiss()
+                }
+            } message: {
+                Text("The clock stops and the lineup is ready for a new game.")
             }
             .alert("Your name", isPresented: $askName) {
                 TextField("e.g. Coach Jeff", text: $nameText)
@@ -112,6 +117,10 @@ struct GameDayView: View {
                 Text("Shown to coaches nearby when they're asked to follow your game.")
             }
             .onAppear { store.applyIdleTimer() }
+            .onDisappear {
+                // Closing after full time ends the game, so the lineup is ready to start again.
+                if !store.isFollowing, store.gameLineupID != nil, store.liveGameLineupID() == nil { store.resetClock() }
+            }
         }
     }
 
@@ -140,6 +149,7 @@ struct GameDayView: View {
 
 private struct ClockCard: View {
     @Environment(LineupStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
     let s: LineupState
     let r: GameClock.Reading
 
@@ -230,8 +240,11 @@ private struct ClockCard: View {
             if r.half == 0 {
                 bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
             } else {
-                Button { store.resetClock() } label: {
-                    Label("New game", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                Button {
+                    store.resetClock()
+                    dismiss()
+                } label: {
+                    Label("End game", systemImage: "stop.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).controlSize(.large)
             }

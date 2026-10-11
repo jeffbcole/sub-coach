@@ -11,6 +11,8 @@ struct LineupView: View {
     @State private var nameText = ""
     @State private var gridWidth: CGFloat = 0
     @State private var openSide: Edge.Set = []
+    /// Another lineup's game that has to end before this one starts.
+    @State private var endOther: SavedLineup?
 
     private let nameWidth: CGFloat = 112
     /// Period columns stretch to fit every period on screen when there's room (landscape,
@@ -94,6 +96,18 @@ struct LineupView: View {
         .lineupNameAlert($naming, text: $nameText) { _, name in
             if let id = store.currentLineup?.id { store.renameLineup(id, to: name) }
         }
+        .confirmationDialog(
+            "End the game on \u{201C}\(endOther?.displayName ?? "")\u{201D}?",
+            isPresented: Binding(get: { endOther != nil }, set: { if !$0 { endOther = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("End it and start this lineup", role: .destructive) {
+                store.resetClock()
+                store.presentGameDay = true
+            }
+        } message: {
+            Text("That game is still in progress.")
+        }
     }
 
     /// The side away from the camera cutout when a phone with one is in landscape.
@@ -136,47 +150,54 @@ struct LineupView: View {
         .disabled(s.players.isEmpty || store.isAutoFilling)
     }
 
-    /// Start game, or get back to the game in progress.
+    /// Start game, or get back to the game in progress. Starting a lineup ends another
+    /// lineup's game (after asking, if it's still being played).
     private var gameButton: some View {
-        let gameID = store.gameLineupID
-        let otherGame = gameID.flatMap { id in id == store.team.currentID ? nil : store.team.lineup(id) }
         // "Following" only on the followed game's own lineup; other lineups work as usual.
         let followed = store.isFollowedLineup(store.currentLineup) ? store.following : nil
         // This lineup came from a broadcast that's live nearby: offer to follow it (again).
         let live = followed == nil ? store.liveBroadcast(for: store.currentLineup) : nil
-        return Button {
-            if let live { store.follow(live); return }
-            // Running your own game means no longer following someone else's.
-            if followed == nil, store.isFollowing { store.stopFollowing() }
-            if followed == nil, let otherGame { store.selectLineup(otherGame.id) }
-            store.presentGameDay = true
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: followed != nil || live != nil ? "antenna.radiowaves.left.and.right" : gameID == nil ? "play.fill" : "stopwatch")
-                if let followed {
-                    Text("Following \(followed.hostName)").lineLimit(1)
-                } else if let live {
-                    Text("Follow \(live.hostName)").lineLimit(1)
-                } else if let otherGame {
-                    Text("Game on: \(otherGame.displayName)").lineLimit(1)
-                } else if gameID != nil {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        return TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            // A game at full time no longer counts; this lineup can start fresh.
+            let gameID = store.liveGameLineupID(at: ctx.date)
+            let resume = followed == nil && live == nil && gameID == store.team.currentID
+            Button {
+                if let live { store.follow(live); return }
+                if followed == nil {
+                    // Running your own game means no longer following someone else's.
+                    if store.isFollowing { store.stopFollowing() }
+                    if let gameID, gameID != store.team.currentID {
+                        endOther = store.team.lineup(gameID)
+                        return
+                    }
+                    // Clear a finished game before starting a new one.
+                    if gameID == nil, store.gameLineupID != nil { store.resetClock() }
+                }
+                store.presentGameDay = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: followed != nil || live != nil ? "antenna.radiowaves.left.and.right" : resume ? "stopwatch" : "play.fill")
+                    if let followed {
+                        Text("Following \(followed.hostName)").lineLimit(1)
+                    } else if let live {
+                        Text("Follow \(live.hostName)").lineLimit(1)
+                    } else if resume {
                         let r = store.clock.reading(at: ctx.date, store.gameState)
                         Text(r.halfOver ? "Resume game" : "Resume · \(Game.clock(seconds: Int(r.elapsed)))")
                             .monospacedDigit()
                             .lineLimit(1)
+                    } else {
+                        Text("Start game").lineLimit(1)
                     }
-                } else {
-                    Text("Start game").lineLimit(1)
                 }
+                .font(.headline)
+                .foregroundStyle(Theme.accentText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
             }
-            .font(.headline)
-            .foregroundStyle(Theme.accentText)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            .buttonStyle(.borderedProminent)
+            .tint(followed != nil || live != nil ? .blue : resume ? .orange : Theme.accent)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(followed != nil || live != nil ? .blue : gameID == nil ? Theme.accent : .orange)
     }
 
     // MARK: Summary
