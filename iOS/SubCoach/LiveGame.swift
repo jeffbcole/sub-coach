@@ -49,17 +49,17 @@ enum LiveGame {
             if r.half == 0 { st.note = s.lineupSummary(at: s.perHalf) }
             return st
         }
-        if let next = r.nextSubAt {
-            let c = s.changes(at: p + 1)
+        if let next = r.nextSubAt, let np = r.nextSubPeriod {
+            let c = s.changes(at: np)
             func nm(_ x: Player) -> String { x.name.isEmpty ? "?" : x.name }
             st.nextSubAt = halfStart?.addingTimeInterval(next)
             st.nextSubClock = GameActivityAttributes.clock(next)
-            st.nextPeriod = (p + 1) % s.perHalf + 1
+            st.nextPeriod = np % s.perHalf + 1
             st.nextIn = c.swaps.map { "\(nm($0.player)) (\(s.positionName($0.pos)))" }
             st.nextOut = c.swaps.compactMap { $0.replacing.map(nm) } + c.off.map(nm)
             st.nextMoves = c.moves.map { "\(nm($0.player)) \(s.positionName($0.from))→\(s.positionName($0.to))" }
-            let later = next + s.periodSeconds
-            st.laterSubClock = later < s.halfSeconds - 1 ? GameActivityAttributes.clock(later) : nil
+            // The sub after that one, skipping periods with nothing to change.
+            st.laterSubClock = s.nextSubPeriod(from: np + 1).map { GameActivityAttributes.clock(Double($0 % s.perHalf) * s.periodSeconds) }
         }
         return st
     }

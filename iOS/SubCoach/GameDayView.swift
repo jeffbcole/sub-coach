@@ -35,7 +35,7 @@ struct GameDayView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(spacing: 12) {
-                                ForEach(0..<s.periods, id: \.self) { p in
+                                ForEach((0..<s.periods).filter(s.showsCard), id: \.self) { p in
                                     SubCard(s: s, period: p, status: status(p, r, s),
                                             changed: !store.isFollowing && store.lastSubs?.changedPeriods.contains(p) == true).id(p)
                                 }
@@ -52,7 +52,7 @@ struct GameDayView: View {
                     }
                 }
                 .sensoryFeedback(.warning, trigger: r.period) { old, new in
-                    if let old, let new { return new > old }
+                    if let old, let new { return new > old && s.hasSubs(at: new) }
                     return false
                 }
                 .sensoryFeedback(.success, trigger: r.halfOver) { _, new in new }
@@ -135,20 +135,27 @@ struct GameDayView: View {
     /// Which card to keep scrolled to the top.
     private func focus(_ r: GameClock.Reading, _ s: LineupState) -> Int {
         if r.halfOver && r.half == 0 { return s.perHalf }
-        return r.period ?? 0
+        return onNow(r, s) ?? 0
+    }
+
+    /// The card for the lineup on the field now: the current period's, or the last shown
+    /// card before it when nothing changed at the start of this period.
+    private func onNow(_ r: GameClock.Reading, _ s: LineupState) -> Int? {
+        guard let cur = r.period else { return nil }
+        return (0...cur).last(where: s.showsCard)
     }
 
     private func status(_ p: Int, _ r: GameClock.Reading, _ s: LineupState) -> SubCard.Status {
-        guard r.started, let cur = r.period else { return p == 0 ? .next : .upcoming }
+        guard r.started, let now = onNow(r, s) else { return p == 0 ? .next : .upcoming }
         if r.halfOver {
             if r.half == 1 { return .done }
             return p < s.perHalf ? .done : p == s.perHalf ? .next : .upcoming
         }
-        if p < cur { return .done }
-        if p == cur {
-            return p % s.perHalf != 0 && r.sincePeriodStart < Self.subNowSeconds ? .subNow : .now
+        if p < now { return .done }
+        if p == now {
+            return p == r.period && r.periodHasSubs && r.sincePeriodStart < Self.subNowSeconds ? .subNow : .now
         }
-        if p == cur + 1 && p % s.perHalf != 0 { return .next }
+        if p == r.nextSubPeriod { return .next }
         return .upcoming
     }
 }
@@ -215,7 +222,7 @@ private struct ClockCard: View {
         } else if r.halfOver {
             Text(r.half == 0 ? "Second half lineup is below." : "That's the game.")
                 .font(.subheadline).foregroundStyle(.secondary)
-        } else if let p = r.period, p % s.perHalf != 0, r.sincePeriodStart < GameDayView.subNowSeconds {
+        } else if let p = r.period, r.periodHasSubs, r.sincePeriodStart < GameDayView.subNowSeconds {
             pill("SUB NOW · Period \(p + 1)", systemImage: "arrow.left.arrow.right", color: .orange)
         } else if let next = r.nextSubAt {
             let left = next - r.elapsed

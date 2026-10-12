@@ -240,13 +240,18 @@ final class LineupStore {
         return state
     }
 
-    func startGame() {
-        // A new game: forget subs (and who was out) from the last time this lineup was played.
+    /// A new game on the open lineup: forget subs (and who was out) from the last time it
+    /// was played. They stay on the grid after a game ends until then.
+    func clearLastGame() {
         if var s = team.state(for: team.currentID), !s.subs.isEmpty || s.players.contains(where: \.out) {
             s.subs = []
             for i in s.players.indices { s.players[i].out = false }
             setLineupState(s, for: team.currentID)
         }
+    }
+
+    func startGame() {
+        clearLastGame()
         setClock(GameClock(phase: .running, half: 0, startedAt: .now, lineupID: team.currentID))
         // The first time, alerts can only be scheduled once permission is given.
         SubAlerts.requestPermission { [weak self] in
@@ -336,7 +341,9 @@ final class LineupStore {
         guard clock.phase == .running else { return }
         let r = clock.reading(at: .now, s)
         guard !r.halfOver else { return }
-        let wait = (r.nextSubAt ?? s.halfSeconds) - r.elapsed + 0.5
+        // Next period change (with or without subs), so the period shown stays current.
+        let boundary = r.period.map { Double($0 % s.perHalf + 1) * s.periodSeconds } ?? s.halfSeconds
+        let wait = min(boundary, s.halfSeconds) - r.elapsed + 0.5
         boundaryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(wait))
             guard !Task.isCancelled else { return }

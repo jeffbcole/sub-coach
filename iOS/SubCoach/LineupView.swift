@@ -172,6 +172,7 @@ struct LineupView: View {
                     }
                     // Clear a finished game before starting a new one.
                     if gameID == nil, store.gameLineupID != nil { store.resetClock() }
+                    if !resume { store.clearLastGame() }
                 }
                 store.presentGameDay = true
             } label: {

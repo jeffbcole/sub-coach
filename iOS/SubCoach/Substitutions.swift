@@ -54,6 +54,19 @@ extension LineupState {
         return c
     }
 
+    /// There are subs to call at the start of period p (a half's kickoff doesn't count).
+    func hasSubs(at p: Int) -> Bool { p % perHalf != 0 && p < periods && !changes(at: p).isEmpty }
+
+    /// The first period from `from` up to the end of that half with subs to call.
+    func nextSubPeriod(from: Int) -> Int? {
+        let end = (from / perHalf + 1) * perHalf
+        return (from..<end).first { hasSubs(at: $0) }
+    }
+
+    /// Game Day shows a card for each kickoff, each period with subs to call, and any period
+    /// with subs made during it. Periods where nothing changes are left out.
+    func showsCard(_ p: Int) -> Bool { p % perHalf == 0 || hasSubs(at: p) || !subs(in: p).isEmpty }
+
     /// e.g. "GK Ava · LD Mia · RD Zoe …"
     func lineupSummary(at p: Int) -> String {
         lineup(at: p).map { "\(positionName($0.pos)) \($0.player.name.isEmpty ? "?" : $0.player.name)" }.joined(separator: " · ")
@@ -97,8 +110,13 @@ struct GameClock: Codable, Equatable {
         var halfOver = false
         /// Overall period being played (0-based), nil before kickoff.
         var period: Int?
-        /// Clock time of the next sub in this half, if there is one.
+        /// Clock time of the next sub in this half, if there is one (periods with nothing to
+        /// change are skipped).
         var nextSubAt: TimeInterval?
+        /// The period that next sub starts.
+        var nextSubPeriod: Int?
+        /// The current period started with subs to call.
+        var periodHasSubs = false
         /// Seconds since the current period started.
         var sincePeriodStart: TimeInterval = 0
         var gameOver: Bool { halfOver && half == 1 }
@@ -106,15 +124,20 @@ struct GameClock: Codable, Equatable {
 
     func reading(at now: Date, _ s: LineupState) -> Reading {
         guard phase != .ready else {
-            return Reading(nextSubAt: s.perHalf > 1 ? s.periodSeconds : nil)
+            let n = s.nextSubPeriod(from: 1)
+            return Reading(nextSubAt: n.map { Double($0) * s.periodSeconds }, nextSubPeriod: n)
         }
         let el = elapsed(at: now, halfSeconds: s.halfSeconds)
         let over = el >= s.halfSeconds - 0.001
         let j = min(s.perHalf - 1, Int((el + 0.001) / s.periodSeconds))
+        let p = half * s.perHalf + j
+        let next = over ? nil : s.nextSubPeriod(from: p + 1)
         return Reading(
             started: true, half: half, elapsed: el, halfOver: over,
-            period: half * s.perHalf + j,
-            nextSubAt: j + 1 < s.perHalf && !over ? Double(j + 1) * s.periodSeconds : nil,
+            period: p,
+            nextSubAt: next.map { Double($0 % s.perHalf) * s.periodSeconds },
+            nextSubPeriod: next,
+            periodHasSubs: s.hasSubs(at: p),
             sincePeriodStart: el - Double(j) * s.periodSeconds)
     }
 }
