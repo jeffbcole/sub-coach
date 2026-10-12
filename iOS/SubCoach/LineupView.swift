@@ -310,9 +310,13 @@ struct LineupView: View {
     private var halfLine: some View { Rectangle().fill(Color(.separator)).frame(width: 2) }
 
     private func halfHeader(_ title: String, width: CGFloat) -> some View {
-        Text(title)
+        // Centered over the half, unless the half is wider than the screen and that would
+        // put the title out of view.
+        let fits = width <= gridWidth - nameWidth
+        return Text(title)
             .font(.subheadline.weight(.bold)).textCase(.uppercase)
-            .frame(width: width)
+            .padding(.leading, fits ? 0 : 12)
+            .frame(width: width, alignment: fits ? .center : .leading)
             .padding(.top, 6)
     }
 
@@ -323,11 +327,14 @@ struct LineupView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(pl.name.isEmpty ? .secondary : .primary)
                 .lineLimit(1)
-            HStack(spacing: 2) {
+            // One dot per period, narrower as periods are added so they fit beside the minutes.
+            let gap: CGFloat = s.periods > 12 ? 1 : 2
+            let dot = min(7, max(1.5, (64 - gap * CGFloat(s.periods - 1) - 3) / CGFloat(s.periods)))
+            HStack(spacing: gap) {
                 ForEach(0..<s.periods, id: \.self) { p in
-                    RoundedRectangle(cornerRadius: 1.5)
+                    RoundedRectangle(cornerRadius: min(1.5, dot / 2))
                         .fill(pl.cell(p) != nil ? Theme.accent : Theme.benchBG)
-                        .frame(width: s.periods > 6 ? 4 : 7, height: 4)
+                        .frame(width: dot, height: 4)
                         .padding(.leading, p == s.perHalf ? 3 : 0)
                 }
                 Text(pl.absent ? "away" : pl.isAvailable ? "\(s.minutes(n))m" : "out")

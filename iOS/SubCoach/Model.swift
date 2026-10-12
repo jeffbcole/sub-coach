@@ -3,6 +3,7 @@ import Foundation
 enum Game {
     static let defaultHalfMinutes = 25
     static let defaultPerHalf = 5
+    static let perHalfChoices = 1...10
     static let halfLengthChoices = [10, 12, 15, 20, 25, 30, 35, 40, 45]
     static let defaultPositions = ["GK", "LD", "RD", "LM", "RM", "LF", "RF"]
     static let weights: [(value: Double, label: String)] = [(0.75, "Less"), (1, "Normal"), (1.25, "More"), (1.5, "Most")]
@@ -108,7 +109,7 @@ struct LineupState: Codable, Equatable {
 
     /// Clamp everything to valid shapes, like the web version's normalize().
     mutating func normalize() {
-        perHalf = (1...6).contains(perHalf) ? perHalf : Game.defaultPerHalf
+        perHalf = Game.perHalfChoices.contains(perHalf) ? perHalf : Game.defaultPerHalf
         halfMinutes = (5...60).contains(halfMinutes) ? halfMinutes : Game.defaultHalfMinutes
         if positions.isEmpty { positions = Game.defaultPositions }
         let size = positions.count
@@ -133,7 +134,7 @@ struct LineupState: Codable, Equatable {
     /// Keep the current plan and stretch it across a new number of periods per half.
     mutating func setPerHalf(_ n: Int) {
         let old = perHalf
-        guard n != old, (1...6).contains(n) else { return }
+        guard n != old, Game.perHalfChoices.contains(n) else { return }
         for i in players.indices {
             var c: [Int?] = []
             for h in 0..<2 {

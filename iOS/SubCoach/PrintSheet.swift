@@ -8,7 +8,11 @@ enum PrintSheet {
 
     @MainActor static func pdf(_ s: LineupState) -> Data {
         let content = CGSize(width: page.width - margin * 2, height: page.height - margin * 2)
-        let renderer = ImageRenderer(content: SheetView(s: s).frame(width: content.width))
+        // Lay the table out at its natural width: a narrow one stretches across the page,
+        // a wide one (many periods) keeps its columns readable and is shrunk to fit below.
+        var natural = CGSize.zero
+        ImageRenderer(content: SheetView(s: s).fixedSize()).render { size, _ in natural = size }
+        let renderer = ImageRenderer(content: SheetView(s: s).frame(width: max(content.width, natural.width)))
         let data = NSMutableData()
         renderer.render { size, draw in
             var box = CGRect(origin: .zero, size: page)
@@ -55,7 +59,9 @@ enum PrintSheet {
                     GridRow {
                         cell("Player", header: true, leading: true)
                         ForEach(0..<s.periods, id: \.self) { p in
-                            cell("\(p + 1) (\(s.startAt(p % s.perHalf)))", header: true, halfLine: p == s.perHalf)
+                            // With many periods, put the start time under the number to keep columns narrow.
+                            cell(compact ? "\(p + 1)\n\(s.startAt(p % s.perHalf))" : "\(p + 1) (\(s.startAt(p % s.perHalf)))",
+                                 header: true, halfLine: p == s.perHalf)
                         }
                         cell("Periods", header: true)
                     }
@@ -64,7 +70,7 @@ enum PrintSheet {
                             cell(pl.name, leading: true, bold: true)
                             ForEach(0..<s.periods, id: \.self) { p in
                                 let c = pl.cell(p)
-                                cell(c.map { s.positionName($0) } ?? "bench", dim: c == nil, halfLine: p == s.perHalf)
+                                cell(c.map { s.positionName($0) } ?? (compact ? "–" : "bench"), dim: c == nil, halfLine: p == s.perHalf)
                             }
                             cell("\(pl.periodsPlayed)")
                         }
@@ -76,6 +82,8 @@ enum PrintSheet {
             .environment(\.colorScheme, .light)
         }
 
+        private var compact: Bool { s.periods > 12 }
+
         private var subText: String {
             let subs = (1..<max(s.perHalf, 1)).map { s.startAt($0) }
             guard let last = subs.last else { return "" }
@@ -86,8 +94,10 @@ enum PrintSheet {
             Text(text)
                 .font(.system(size: header ? 12 : 15, weight: header || bold ? .bold : .regular))
                 .foregroundStyle(dim ? Color(white: 0.47) : .black)
-                .lineLimit(1)
-                .padding(.horizontal, 6)
+                .multilineTextAlignment(leading ? .leading : .center)
+                // Never cut text off; a sheet too wide for the page is scaled down instead.
+                .fixedSize()
+                .padding(.horizontal, compact ? 4 : 6)
                 .frame(maxWidth: .infinity, minHeight: header ? 24 : 30, alignment: leading ? .leading : .center)
                 .background(header ? Color(white: 0.9) : .white)
                 .overlay { Rectangle().strokeBorder(.black, lineWidth: 0.5) }

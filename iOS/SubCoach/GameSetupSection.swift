@@ -41,7 +41,7 @@ struct GameSetupSection: View {
                         get: { store.state.perHalf },
                         set: { n in store.update { $0.setPerHalf(n) } })
                     ) {
-                        ForEach(1...6, id: \.self) { n in
+                        ForEach(Game.perHalfChoices, id: \.self) { n in
                             Text("\(n) (\(Game.clock(seconds: Int((s.halfSeconds / Double(n)).rounded()))) each)").tag(n)
                         }
                     }

@@ -5,7 +5,7 @@ import Foundation
 /// 2. A search then trades blocks of periods between girls to cut down on subbing
 ///    in and out, so bench time comes in longer stretches.
 /// Ranked by, most important first: every position filled, no one-period stints in
-/// the middle of a half, fair playing time (adjusted by weight), few in/out changes
+/// the middle of a half (with 4+ periods per half), fair playing time (adjusted by weight), few in/out changes
 /// within a half, few position changes for girls staying on, similar time in each
 /// half, then variety across defense / midfield / forward.
 enum AutoFill {
@@ -17,7 +17,11 @@ enum AutoFill {
     /// Per time a girl staying on moves to a new spot, with "Fewer position changes" on or off.
     static let fewerMovesCost = 100.0, movesCost = 4.0
 
-    static func run(_ st: inout LineupState, fewerMoves: Bool = true, restarts: Int = 100, steps: Int = 4000) {
+    /// The search is sized for up to 10 periods; games with more periods get a proportionally
+    /// bigger search so the results stay as good.
+    static func run(_ st: inout LineupState, fewerMoves: Bool = true, restarts: Int? = nil, steps: Int? = nil) {
+        let scale = max(1, Double(st.periods) / 10)
+        let restarts = restarts ?? Int(100 * scale), steps = steps ?? Int(4000 * scale)
         guard !st.players.isEmpty, restarts > 0 else { return }
         let snapshot = st
         var results = [(cells: [[Int?]], score: Double)?](repeating: nil, count: restarts)
@@ -240,8 +244,9 @@ enum AutoFill {
                 if a { played += 1; if p < perHalf { first += 1 } else { second += 1 } }
                 if j != 0 && a != playing(x, p - 1) { switches += 1 }
                 // In for a single period with bench on both sides. One period at the
-                // start or end of a half is fine.
-                if a && j != 0 && j != perHalf - 1 && !playing(x, p - 1) && !playing(x, p + 1) { islands += 1 }
+                // start or end of a half is fine, and with 3 or fewer periods per half
+                // there's no room to avoid it, so it's allowed there too.
+                if perHalf > 3 && a && j != 0 && j != perHalf - 1 && !playing(x, p - 1) && !playing(x, p + 1) { islands += 1 }
             }
             let d = Double(played) - fair[x]
             var c = d * d * fairnessCost + Double(switches) * switchCost + Double(islands) * islandCost
