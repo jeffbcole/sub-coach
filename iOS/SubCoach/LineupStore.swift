@@ -131,6 +131,14 @@ final class LineupStore {
 
     /// A new, empty lineup using the game format of the open one.
     @discardableResult
+    /// Today's date as a starting name, e.g. "Lineup 10/24", numbered if that's taken.
+    func suggestedLineupName(on date: Date = .now) -> String {
+        let base = "Lineup " + date.formatted(.dateTime.month(.defaultDigits).day())
+        let taken = Set(team.lineups.map(\.displayName))
+        guard taken.contains(base) else { return base }
+        return (2...).lazy.map { "\(base) (\($0))" }.first { !taken.contains($0) }!
+    }
+
     func newLineup(named name: String) -> String {
         let id = Game.newID()
         var t = team

@@ -30,7 +30,7 @@ struct LineupsList: View {
         .navigationTitle("Lineups")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { nameText = ""; naming = .new } label: { Label("New lineup", systemImage: "plus") }
+                Button { nameText = store.suggestedLineupName(); naming = .new } label: { Label("New lineup", systemImage: "plus") }
             }
         }
         .lineupNameAlert($naming, text: $nameText) { kind, name in
@@ -158,6 +158,12 @@ extension View {
             }
         } message: {
             if isNew { Text("Starts empty, with the same half length and periods as the lineup you have open.") }
+        }
+        // The name starts selected, so typing replaces it, with a clear button to empty it.
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) { note in
+            guard naming.wrappedValue != nil, let field = note.object as? UITextField else { return }
+            field.clearButtonMode = .always
+            DispatchQueue.main.async { field.selectAll(nil) }
         }
     }
 
