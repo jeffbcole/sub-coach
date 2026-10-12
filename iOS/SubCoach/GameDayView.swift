@@ -27,11 +27,17 @@ struct GameDayView: View {
                             .padding(.horizontal)
                             .padding(.bottom, 8)
                     }
+                    if !store.isFollowing {
+                        SubResultBanner(now: ctx.date)
+                            .padding(.horizontal)
+                            .padding(.bottom, 8)
+                    }
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(spacing: 12) {
                                 ForEach(0..<s.periods, id: \.self) { p in
-                                    SubCard(s: s, period: p, status: status(p, r, s)).id(p)
+                                    SubCard(s: s, period: p, status: status(p, r, s),
+                                            changed: !store.isFollowing && store.lastSubs?.changedPeriods.contains(p) == true).id(p)
                                 }
                             }
                             .padding([.horizontal, .bottom])
@@ -150,6 +156,7 @@ struct GameDayView: View {
 private struct ClockCard: View {
     @Environment(LineupStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var showSub = false
     let s: LineupState
     let r: GameClock.Reading
 
@@ -173,6 +180,7 @@ private struct ClockCard: View {
         .padding()
         .frame(maxWidth: .infinity)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .sheet(isPresented: $showSub) { MakeSubSheet() }
     }
 
     private var statusLine: String {
@@ -235,10 +243,16 @@ private struct ClockCard: View {
         if let f = store.following {
             FollowerControls(game: f)
         } else if phase == .ready {
-            bigButton("Kick off", systemImage: "play.fill") { store.startGame() }
+            VStack(spacing: 8) {
+                bigButton("Kick off", systemImage: "play.fill") { store.startGame() }
+                subButton("Change starting lineup", prominent: false)
+            }
         } else if r.halfOver {
             if r.half == 0 {
-                bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
+                VStack(spacing: 8) {
+                    bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
+                    subButton("Change 2nd half lineup", prominent: false)
+                }
             } else {
                 Button {
                     store.resetClock()
@@ -249,12 +263,29 @@ private struct ClockCard: View {
                 .buttonStyle(.bordered).controlSize(.large)
             }
         } else if phase == .running {
-            Button { store.pauseClock() } label: {
-                Label("Pause", systemImage: "pause.fill").frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Button { store.pauseClock() } label: {
+                    Label("Pause", systemImage: "pause.fill").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered).controlSize(.large)
+                subButton("Make a sub", prominent: true)
+            }
+        } else {
+            HStack(spacing: 10) {
+                bigButton("Resume", systemImage: "play.fill") { store.resumeClock() }
+                subButton("Make a sub", prominent: false)
+            }
+        }
+    }
+
+    @ViewBuilder private func subButton(_ title: String, prominent: Bool) -> some View {
+        if prominent {
+            bigButton(title, systemImage: "arrow.left.arrow.right") { showSub = true }
+        } else {
+            Button { showSub = true } label: {
+                Label(title, systemImage: "arrow.left.arrow.right").frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered).controlSize(.large)
-        } else {
-            bigButton("Resume", systemImage: "play.fill") { store.resumeClock() }
         }
     }
 
@@ -276,6 +307,8 @@ struct SubCard: View {
     let s: LineupState
     let period: Int
     let status: Status
+    /// Just changed by a re-plan after a sub.
+    var changed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -285,6 +318,7 @@ struct SubCard: View {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
                 Spacer()
+                if changed && status != .done { tag("Updated", .orange) }
                 badge
             }
             // Everyone is off the field at kickoff, so show the lineup, not changes.
@@ -293,6 +327,7 @@ struct SubCard: View {
             } else {
                 changeRows
             }
+            midSubRows
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -346,6 +381,32 @@ struct SubCard: View {
 
     private func name(_ p: Player) -> String { p.name.isEmpty ? "Unnamed" : p.name }
 
+    /// Subs made during this period, with the clock time.
+    @ViewBuilder private var midSubRows: some View {
+        let subs = s.subs(in: period)
+        if !subs.isEmpty {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(subs) { sub in
+                    HStack(spacing: 8) {
+                        chip(sub.pos)
+                        Image(systemName: "arrow.up.circle.fill").foregroundStyle(.green)
+                        Text(s.name(sub.on)).font(.subheadline.weight(.semibold))
+                        Image(systemName: "arrow.down.circle.fill").foregroundStyle(.red).padding(.leading, 6)
+                        Text(s.name(sub.off)).font(.subheadline).foregroundStyle(.secondary)
+                        if s.players.first(where: { $0.id == sub.off })?.out == true {
+                            Text("out").font(.caption.weight(.semibold)).foregroundStyle(Theme.warn)
+                        }
+                        Spacer(minLength: 4)
+                        Text(Game.clock(seconds: Int(sub.at))).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("At \(Game.clock(seconds: Int(sub.at))), \(s.name(sub.on)) in at \(s.positionName(sub.pos)) for \(s.name(sub.off))")
+                }
+            }
+        }
+    }
+
     private func lineupGrid(_ p: Int) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
             ForEach(s.lineup(at: p), id: \.pos) { item in
@@ -398,6 +459,46 @@ struct SubCard: View {
                     .accessibilityLabel("\(name(m.player)) moves from \(s.positionName(m.from)) to \(s.positionName(m.to))")
                 }
             }
+        }
+    }
+}
+
+// MARK: - After a sub
+
+/// Shown under the clock after subs: re-planning, then what changed, with Undo.
+private struct SubResultBanner: View {
+    @Environment(LineupStore.self) private var store
+    let now: Date
+    /// How long Undo stays offered.
+    static let visibleFor: TimeInterval = 120
+
+    var body: some View {
+        if store.isReplanning {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Updating the rest of the game…").font(.subheadline.weight(.medium))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        } else if let r = store.lastSubs, now.timeIntervalSince(r.made) < Self.visibleFor {
+            let n = r.changedPeriods.count
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(n == 0 ? "Sub made" : "Rest of game updated").font(.subheadline.weight(.semibold))
+                    Text(n == 0 ? "No changes needed to upcoming subs" : "\(n) upcoming \(n == 1 ? "period" : "periods") changed")
+                        .font(.caption)
+                }
+                Spacer(minLength: 0)
+                Button("Undo") { store.undoSubs() }
+                    .font(.subheadline.weight(.semibold))
+                Button { store.dismissSubResult() } label: { Image(systemName: "xmark").font(.caption.weight(.bold)) }
+                    .accessibilityLabel("Dismiss")
+            }
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 }

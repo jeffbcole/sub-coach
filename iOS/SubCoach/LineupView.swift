@@ -322,6 +322,8 @@ struct LineupView: View {
 
     private func nameCell(_ pl: Player, index: Int, s: LineupState) -> some View {
         let n = pl.periodsPlayed
+        // Real minutes, so subs made during periods count only the time actually played.
+        let mins = s.subs.isEmpty ? s.minutes(n) : Int((s.secondsPlayed(pl.id) / 60).rounded())
         return VStack(alignment: .leading, spacing: 3) {
             Text(pl.name.isEmpty ? "Player \(index + 1)" : pl.name)
                 .font(.subheadline.weight(.semibold))
@@ -333,18 +335,18 @@ struct LineupView: View {
             HStack(spacing: gap) {
                 ForEach(0..<s.periods, id: \.self) { p in
                     RoundedRectangle(cornerRadius: min(1.5, dot / 2))
-                        .fill(pl.cell(p) != nil ? Theme.accent : Theme.benchBG)
+                        .fill(pl.cell(p) != nil || s.subOn(pl.id, in: p) != nil ? Theme.accent : Theme.benchBG)
                         .frame(width: dot, height: 4)
                         .padding(.leading, p == s.perHalf ? 3 : 0)
                 }
-                Text(pl.absent ? "away" : pl.isAvailable ? "\(s.minutes(n))m" : "out")
+                Text(pl.absent ? "away" : !pl.isAvailable ? "out" : pl.out ? "\(mins)m · out" : "\(mins)m")
                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     .padding(.leading, 4)
             }
         }
         .frame(height: rowHeight, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(pl.name), \(n) of \(s.periods) periods, \(s.minutes(n)) minutes")
+        .accessibilityLabel("\(pl.name), \(n) of \(s.periods) periods, \(mins) minutes")
     }
 
     @ViewBuilder private func check(_ c: [Int], s: LineupState) -> some View {
@@ -375,6 +377,11 @@ struct PositionCell: View {
         let c = player.cell(period)
         let dup = c.map { counts.indices.contains($0) && counts[$0] > 1 } ?? false
         let off = c.map { !player.canPlay($0) } ?? false
+        // Subbed on or off during this period.
+        let cameOn = c == nil ? s.subOn(player.id, in: period) : nil
+        let wentOff = c != nil ? s.subOff(player.id, in: period) : nil
+        let shown = c ?? cameOn?.pos
+        let note = cameOn.map { "in \(Game.clock(seconds: Int($0.at)))" } ?? wentOff.map { "off \(Game.clock(seconds: Int($0.at)))" }
         Menu {
             Picker("Position", selection: Binding(
                 get: { player.cell(period) },
@@ -386,12 +393,18 @@ struct PositionCell: View {
                 }
             }
         } label: {
-            Text(c.map { s.positionName($0) } ?? "–")
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1).minimumScaleFactor(0.7)
+            VStack(spacing: 0) {
+                Text(shown.map { s.positionName($0) } ?? "–")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                if let note {
+                    Text(note).font(.system(size: 9, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(Theme.foreground(group: c.map(s.group)))
-                .background(Theme.background(group: c.map(s.group)), in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(Theme.foreground(group: shown.map(s.group)))
+                .background(Theme.background(group: shown.map(s.group)).opacity(wentOff != nil || cameOn != nil ? 0.7 : 1),
+                            in: RoundedRectangle(cornerRadius: 6))
                 .overlay {
                     if dup || off { RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.warn, lineWidth: 2) }
                 }
@@ -399,7 +412,7 @@ struct PositionCell: View {
         }
         .menuIndicator(.hidden)
         .accessibilityLabel("\(player.name), period \(period + 1)")
-        .accessibilityValue(c.map { s.positionName($0) } ?? "Bench")
+        .accessibilityValue((shown.map { s.positionName($0) } ?? "Bench") + (note.map { ", \($0)" } ?? ""))
     }
 
     /// e.g. "LD", "LD · Ava" when someone else is already there, "GK (off for her)".

@@ -70,7 +70,13 @@ enum PrintSheet {
                             cell(pl.name, leading: true, bold: true)
                             ForEach(0..<s.periods, id: \.self) { p in
                                 let c = pl.cell(p)
-                                cell(c.map { s.positionName($0) } ?? (compact ? "–" : "bench"), dim: c == nil, halfLine: p == s.perHalf)
+                                // Subbed on or off during the period: position and the clock time.
+                                let on = c == nil ? s.subOn(pl.id, in: p) : nil
+                                let off = c != nil ? s.subOff(pl.id, in: p) : nil
+                                let label = on.map { "\(s.positionName($0.pos)) from \(Game.clock(seconds: Int($0.at)))" }
+                                    ?? off.map { "\(s.positionName($0.pos)) to \(Game.clock(seconds: Int($0.at)))" }
+                                    ?? c.map { s.positionName($0) } ?? (compact ? "–" : "bench")
+                                cell(label, dim: c == nil && on == nil, halfLine: p == s.perHalf)
                             }
                             cell("\(pl.periodsPlayed)")
                         }

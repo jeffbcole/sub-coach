@@ -29,6 +29,8 @@ struct Player: Codable, Identifiable, Equatable {
     var weight: Double
     /// Not at today's game: auto-fill leaves her out.
     var absent = false
+    /// Came off hurt (or otherwise done) during the game: not planned back in.
+    var out = false
 
     /// Auto-fill can use her: she's here and has at least one position turned on.
     var isAvailable: Bool { !absent && can.contains(true) }
@@ -52,6 +54,7 @@ extension LineupState {
         gk2 = try c.decodeIfPresent(String.self, forKey: .gk2) ?? gk2
         positions = try c.decodeIfPresent([String].self, forKey: .positions) ?? positions
         players = try c.decodeIfPresent([Player].self, forKey: .players) ?? players
+        subs = try c.decodeIfPresent([MidSub].self, forKey: .subs) ?? []
     }
 }
 
@@ -65,6 +68,7 @@ extension Player {
         can = try c.decode([Bool].self, forKey: .can)
         weight = try c.decode(Double.self, forKey: .weight)
         absent = try c.decodeIfPresent(Bool.self, forKey: .absent) ?? false
+        out = try c.decodeIfPresent(Bool.self, forKey: .out) ?? false
     }
 }
 
@@ -79,6 +83,8 @@ struct LineupState: Codable, Equatable {
     var groups: [Int] = Formation.standard.roles.map(\.group)
     var formation: String = Formation.standard.id
     var players: [Player] = []
+    /// Subs made during periods of the game in progress, in time order.
+    var subs: [MidSub] = []
 
     var periods: Int { perHalf * 2 }
     /// Players on the field, keeper included.
@@ -126,6 +132,9 @@ struct LineupState: Codable, Equatable {
             if !Game.weights.contains(where: { $0.value == players[i].weight }) { players[i].weight = 1 }
             players[i].name = String(players[i].name.prefix(40))
         }
+        let all = Set(players.map(\.id))
+        subs = subs.filter { (0..<n).contains($0.period) && (0..<size).contains($0.pos) && all.contains($0.off) && all.contains($0.on) }
+            .sorted { ($0.period, $0.at) < ($1.period, $1.at) }
         let ids = Set(keeperChoices.map(\.id))
         if !gk1.isEmpty && !ids.contains(gk1) { gk1 = "" }
         if !gk2.isEmpty && !ids.contains(gk2) { gk2 = "" }
@@ -145,6 +154,7 @@ struct LineupState: Codable, Equatable {
             }
             players[i].cells = c
         }
+        subs = [] // their periods and times no longer line up
         perHalf = n
     }
 

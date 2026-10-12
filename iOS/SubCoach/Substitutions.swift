@@ -28,24 +28,26 @@ extension LineupState {
     /// Who is where in period p, in position order.
     func lineup(at p: Int) -> [(pos: Int, player: Player)] {
         (0..<positionCount).compactMap { pos in
-            players.first { $0.cells[p] == pos }.map { (pos, $0) }
+            players.first { $0.cell(p) == pos }.map { (pos, $0) }
         }
     }
 
     func changes(at p: Int) -> PeriodChanges {
         var c = PeriodChanges()
         guard p > 0, p < periods else { return c }
+        // Compared with the end of the last period, after any subs made during it.
+        let before = positions(atEndOf: p - 1)
         var replaced = Set<String>()
         for pos in 0..<positionCount {
-            for x in players where x.cells[p] == pos && x.cells[p - 1] == nil {
-                let prev = players.first { $0.cells[p - 1] == pos && $0.cells[p] == nil && !replaced.contains($0.id) }
+            for x in players where x.cell(p) == pos && before[x.id] == nil {
+                let prev = players.first { before[$0.id] == pos && $0.cell(p) == nil && !replaced.contains($0.id) }
                 if let prev { replaced.insert(prev.id) }
                 c.swaps.append(.init(pos: pos, player: x, replacing: prev))
             }
         }
-        c.off = players.filter { $0.cells[p - 1] != nil && $0.cells[p] == nil && !replaced.contains($0.id) }
+        c.off = players.filter { before[$0.id] != nil && $0.cell(p) == nil && !replaced.contains($0.id) }
         c.moves = players.compactMap { x -> PeriodChanges.Move? in
-            guard let a = x.cells[p - 1], let b = x.cells[p], a != b else { return nil }
+            guard let a = before[x.id], let b = x.cell(p), a != b else { return nil }
             return .init(player: x, from: a, to: b)
         }
         .sorted { $0.to < $1.to }

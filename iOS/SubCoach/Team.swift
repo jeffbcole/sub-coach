@@ -49,6 +49,10 @@ struct SavedLineup: Codable, Identifiable, Equatable {
     var cells: [String: [Int?]] = [:]
     /// Set when this lineup came from another coach's broadcast; lets the coach follow it again.
     var broadcast: BroadcastLink? = nil
+    /// Subs made during periods of the game in progress.
+    var subs: [MidSub] = []
+    /// Players who came off for the rest of the game.
+    var out: [String] = []
 
     var displayName: String {
         let t = name.trimmingCharacters(in: .whitespaces)
@@ -71,6 +75,8 @@ extension SavedLineup {
         absent = try c.decodeIfPresent([String].self, forKey: .absent) ?? []
         cells = try c.decodeIfPresent([String: [Int?]].self, forKey: .cells) ?? [:]
         broadcast = try c.decodeIfPresent(BroadcastLink.self, forKey: .broadcast)
+        subs = try c.decodeIfPresent([MidSub].self, forKey: .subs) ?? []
+        out = try c.decodeIfPresent([String].self, forKey: .out) ?? []
     }
 }
 
@@ -101,7 +107,7 @@ struct TeamData: Codable, Equatable {
     /// The working copy the screens and auto-fill use: roster + one lineup combined.
     func state(for id: String) -> LineupState? {
         guard let l = lineup(id) else { return nil }
-        let away = Set(l.absent)
+        let away = Set(l.absent), done = Set(l.out)
         var s = LineupState()
         s.perHalf = l.perHalf
         s.halfMinutes = l.halfMinutes
@@ -113,8 +119,10 @@ struct TeamData: Codable, Equatable {
         s.positions = f.roles.map(\.name)
         s.groups = f.roles.map(\.group)
         s.players = roster.map { r in
-            Player(id: r.id, name: r.name, cells: l.cells[r.id] ?? [], can: f.roles.map(r.canPlay), weight: r.weight, absent: away.contains(r.id))
+            Player(id: r.id, name: r.name, cells: l.cells[r.id] ?? [], can: f.roles.map(r.canPlay), weight: r.weight,
+                   absent: away.contains(r.id), out: done.contains(r.id))
         }
+        s.subs = l.subs
         s.normalize()
         return s
     }
@@ -142,6 +150,8 @@ struct TeamData: Codable, Equatable {
         l.gk1 = s.gk1
         l.gk2 = s.gk2
         l.absent = s.players.filter(\.absent).map(\.id)
+        l.out = s.players.filter(\.out).map(\.id)
+        l.subs = s.subs
         l.cells = Dictionary(uniqueKeysWithValues: s.players.map { ($0.id, $0.cells) })
         if l != lineups[i] { l.updated = now }
         lineups[i] = l

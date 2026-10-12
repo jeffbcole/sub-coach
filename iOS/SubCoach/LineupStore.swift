@@ -129,8 +129,6 @@ final class LineupStore {
         save()
     }
 
-    /// A new, empty lineup using the game format of the open one.
-    @discardableResult
     /// Today's date as a starting name, e.g. "Lineup 10/24", numbered if that's taken.
     func suggestedLineupName(on date: Date = .now) -> String {
         let base = "Lineup " + date.formatted(.dateTime.month(.defaultDigits).day())
@@ -139,6 +137,8 @@ final class LineupStore {
         return (2...).lazy.map { "\(base) (\($0))" }.first { !taken.contains($0) }!
     }
 
+    /// A new, empty lineup using the game format of the open one.
+    @discardableResult
     func newLineup(named name: String) -> String {
         let id = Game.newID()
         var t = team
@@ -241,6 +241,12 @@ final class LineupStore {
     }
 
     func startGame() {
+        // A new game: forget subs (and who was out) from the last time this lineup was played.
+        if var s = team.state(for: team.currentID), !s.subs.isEmpty || s.players.contains(where: \.out) {
+            s.subs = []
+            for i in s.players.indices { s.players[i].out = false }
+            setLineupState(s, for: team.currentID)
+        }
         setClock(GameClock(phase: .running, half: 0, startedAt: .now, lineupID: team.currentID))
         // The first time, alerts can only be scheduled once permission is given.
         SubAlerts.requestPermission { [weak self] in
@@ -293,6 +299,7 @@ final class LineupStore {
     func resetClock() {
         // A new game ends any broadcast of the old one.
         if broadcastSession != nil { setBroadcasting(false) }
+        lastSubs = nil
         setClock(GameClock())
     }
 
@@ -350,6 +357,9 @@ final class LineupStore {
         Task {
             let filled = await Task.detached(priority: .userInitiated) { () -> LineupState in
                 var s = snapshot
+                // A fresh plan: subs made during an earlier game no longer apply.
+                s.subs = []
+                for i in s.players.indices { s.players[i].out = false }
                 AutoFill.run(&s, fewerMoves: fewerMoves)
                 return s
             }.value
@@ -361,6 +371,126 @@ final class LineupStore {
     }
 
     func player(_ id: String) -> Player? { state.players.first { $0.id == id } }
+
+    /// Save a working copy to a lineup that may not be the open one (e.g. the game's).
+    func setLineupState(_ s: LineupState, for id: String) {
+        var t = team
+        t.apply(s, to: id)
+        setTeam(t)
+        save()
+    }
+
+    // MARK: Subs during the game
+
+    /// When subs made now take effect: changing the lineup for the next kickoff (before the
+    /// game or at half time), or a sub during a period. Nil after full time.
+    enum SubMoment: Equatable {
+        case kickoff(period: Int)
+        case live(period: Int, at: TimeInterval)
+        var period: Int { switch self { case .kickoff(let p), .live(let p, _): p } }
+    }
+
+    func subMoment(at now: Date = .now) -> SubMoment? {
+        let s = gameState
+        guard !s.players.isEmpty else { return nil }
+        if clock.phase == .ready { return .kickoff(period: 0) }
+        let r = clock.reading(at: now, s)
+        if r.gameOver { return nil }
+        if r.halfOver { return .kickoff(period: s.perHalf) }
+        guard let p = r.period else { return nil }
+        return .live(period: p, at: r.elapsed)
+    }
+
+    /// Who's on the field at that moment: player id -> position.
+    func field(at m: SubMoment) -> [String: Int] {
+        let s = gameState
+        switch m {
+        case .kickoff(let p):
+            return Dictionary(s.players.compactMap { pl in pl.cell(p).map { (pl.id, $0) } }, uniquingKeysWith: { a, _ in a })
+        case .live(let p, _):
+            return s.positions(atEndOf: p)
+        }
+    }
+
+    /// The last subs made, until they're undone or the coach moves on.
+    struct SubResult {
+        let lineupID: String
+        let before: LineupState
+        /// Upcoming periods the re-plan changed.
+        var changedPeriods: Set<Int>
+        let made: Date
+    }
+    private(set) var lastSubs: SubResult?
+    private(set) var isReplanning = false
+
+    /// Record subs (off -> on) at this moment, mark anyone out for the game, then re-plan the
+    /// rest of the game around them in the background.
+    func makeSubs(_ swaps: [(off: String, on: String)], out: Set<String>) {
+        guard !isFollowing, !swaps.isEmpty, let m = subMoment() else { return }
+        let id = gameLineupID ?? team.currentID
+        guard var s = team.state(for: id) else { return }
+        let before = s
+        for sw in swaps {
+            let p = m.period
+            switch m {
+            case .kickoff:
+                guard let i = s.players.firstIndex(where: { $0.id == sw.off }), let j = s.players.firstIndex(where: { $0.id == sw.on }),
+                      let pos = s.players[i].cell(p) else { continue }
+                s.players[j].cells[p] = pos
+                s.players[i].cells[p] = nil
+                if pos == 0 { replaceKeeper(&s, half: p / s.perHalf, off: sw.off, on: sw.on) }
+            case .live(_, let at):
+                guard let pos = s.positions(atEndOf: p)[sw.off] else { continue }
+                s.subs.append(MidSub(period: p, at: at, off: sw.off, on: sw.on, pos: pos))
+                if pos == 0 { replaceKeeper(&s, half: p / s.perHalf, off: sw.off, on: sw.on) }
+            }
+        }
+        let comingOn = Set(swaps.map(\.on))
+        for i in s.players.indices {
+            if out.contains(s.players[i].id) { s.players[i].out = true }
+            if comingOn.contains(s.players[i].id) { s.players[i].out = false } // back in after all
+        }
+        s.normalize()
+        // Save the subs right away; the rest of the game follows in a moment.
+        setLineupState(s, for: id)
+        lastSubs = SubResult(lineupID: id, before: before, changedPeriods: [], made: .now)
+        let lock = m.period + 1
+        guard lock < s.periods else { return }
+        isReplanning = true
+        let recorded = s
+        Task {
+            let planned = await Task.detached(priority: .userInitiated) { () -> LineupState in
+                var t = recorded
+                AutoFill.replan(&t, from: lock)
+                return t
+            }.value
+            isReplanning = false
+            // Skip if the lineup was changed again while re-planning.
+            guard team.state(for: id) == recorded else { return }
+            setLineupState(planned, for: id)
+            // Periods where the subs to call (or the half's kickoff lineup) differ from what the
+            // coach had before making the sub.
+            let changed = (lock..<planned.periods).filter { p in
+                p % planned.perHalf == 0 ? before.lineupSummary(at: p) != planned.lineupSummary(at: p)
+                                         : before.changeSummary(at: p) != planned.changeSummary(at: p)
+            }
+            lastSubs?.changedPeriods = Set(changed)
+        }
+    }
+
+    /// The keeper changed: if that half's keeper was picked by name, follow the change.
+    private func replaceKeeper(_ s: inout LineupState, half: Int, off: String, on: String) {
+        if half == 0, s.gk1 == off { s.gk1 = on }
+        if half == 1, s.gk2 == off { s.gk2 = on }
+    }
+
+    func undoSubs() {
+        guard let r = lastSubs, team.lineup(r.lineupID) != nil else { return }
+        setLineupState(r.before, for: r.lineupID)
+        lastSubs = nil
+    }
+
+    func dismissSubResult() { lastSubs = nil }
 
     func updatePlayer(_ id: String, undoable: Bool = true, _ change: @escaping (inout Player) -> Void) {
         update(undoable: undoable) { s in
