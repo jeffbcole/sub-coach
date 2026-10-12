@@ -39,6 +39,8 @@ struct GameDayView: View {
                                     SubCard(s: s, period: p, status: status(p, r, s),
                                             changed: !store.isFollowing && store.lastSubs?.changedPeriods.contains(p) == true).id(p)
                                 }
+                                PlayingTimeCard(s: s, r: r)
+                                    .padding(.top, 8)
                             }
                             .padding([.horizontal, .bottom])
                             .padding(.top, 4)
@@ -461,6 +463,88 @@ struct SubCard: View {
             }
         }
     }
+}
+
+// MARK: - Playing time
+
+/// At the bottom of Game Day: each girl's minutes so far against the plan, and the
+/// positions she has played.
+private struct PlayingTimeCard: View {
+    let s: LineupState
+    let r: GameClock.Reading
+
+    var body: some View {
+        // How much of the game has been played: whole periods, plus the current one so far.
+        let (period, at): (Int, TimeInterval?) =
+            !r.started ? (0, nil)
+            : r.halfOver ? ((r.half + 1) * s.perHalf, nil)
+            : (r.period ?? 0, r.elapsed)
+        let soFar = s.positionsSoFar(period: period, at: at)
+        let planned = s.secondsPlayed(in: 0..<s.periods)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Playing time").font(.headline)
+            Text(r.started ? "Minutes so far, of the minutes planned for the game" : "Minutes planned for the game")
+                .font(.caption).foregroundStyle(.secondary)
+                .padding(.bottom, 6)
+            ForEach(s.players.filter { !$0.absent }) { pl in
+                row(pl, byPos: soFar[pl.id] ?? [:], planned: planned[pl.id] ?? 0)
+                if pl.id != s.players.last(where: { !$0.absent })?.id { Divider() }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func row(_ pl: Player, byPos: [Int: TimeInterval], planned: TimeInterval) -> some View {
+        let played = byPos.values.reduce(0, +)
+        let positions: [(key: Int, value: TimeInterval)] = byPos.filter { $0.value >= 1 }.sorted { $0.value > $1.value }
+        let fraction: CGFloat = planned > 0 ? CGFloat(Swift.min(1, played / planned)) : 0
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(s.name(pl.id)).font(.subheadline.weight(.semibold))
+                if pl.out { Text("out").font(.caption.weight(.semibold)).foregroundStyle(Theme.warn) }
+                Spacer()
+                Text(r.started ? "\(Self.minutes(played)) of \(Self.minutes(planned)) min" : "\(Self.minutes(planned)) min")
+                    .font(.subheadline).monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            if r.started {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.benchBG)
+                        Capsule().fill(Theme.accent)
+                            .frame(width: g.size.width * fraction)
+                    }
+                }
+                .frame(height: 4)
+            }
+            if !positions.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(positions, id: \.key) { item in positionChip(item.key, item.value) }
+                }
+            } else if !r.started {
+                let plan = Set((0..<s.periods).compactMap { pl.cell($0) }).sorted().map { s.positionName($0) }
+                if !plan.isEmpty {
+                    Text("Plan: " + plan.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func positionChip(_ pos: Int, _ t: TimeInterval) -> some View {
+        HStack(spacing: 3) {
+            Text(s.positionName(pos)).font(.caption.weight(.bold))
+            Text("\(Self.minutes(t))m").font(.caption).monospacedDigit()
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .foregroundStyle(Theme.foreground(group: s.group(pos)))
+        .background(Theme.background(group: s.group(pos)), in: RoundedRectangle(cornerRadius: 5))
+    }
+
+    static func minutes(_ seconds: TimeInterval) -> Int { Int((seconds / 60).rounded()) }
 }
 
 // MARK: - After a sub
