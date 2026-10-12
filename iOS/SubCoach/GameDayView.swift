@@ -488,13 +488,22 @@ private struct PlayingTimeCard: View {
             : (r.period ?? 0, r.elapsed)
         let soFar = s.positionsSoFar(period: period, at: at)
         let planned = s.secondsPlayed(in: 0..<s.periods)
+        // Where the game is now on the timelines.
+        let now: (half: Int, at: TimeInterval)? =
+            !r.started ? nil : r.halfOver ? (r.half, s.halfSeconds) : (r.half, r.elapsed)
         VStack(alignment: .leading, spacing: 0) {
             Text("Playing time").font(.headline)
             Text(r.started ? "Minutes so far, of the minutes planned for the game" : "Minutes planned for the game")
                 .font(.caption).foregroundStyle(.secondary)
                 .padding(.bottom, 6)
+            HStack(spacing: PlayerTimeline.gap) {
+                Text("1st half").frame(maxWidth: .infinity)
+                Text("2nd half").frame(maxWidth: .infinity)
+            }
+            .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            .padding(.bottom, 2)
             ForEach(s.players.filter { !$0.absent }) { pl in
-                row(pl, byPos: soFar[pl.id] ?? [:], planned: planned[pl.id] ?? 0)
+                row(pl, byPos: soFar[pl.id] ?? [:], planned: planned[pl.id] ?? 0, now: now)
                 if pl.id != s.players.last(where: { !$0.absent })?.id { Divider() }
             }
         }
@@ -503,10 +512,10 @@ private struct PlayingTimeCard: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    private func row(_ pl: Player, byPos: [Int: TimeInterval], planned: TimeInterval) -> some View {
+    private func row(_ pl: Player, byPos: [Int: TimeInterval], planned: TimeInterval,
+                     now: (half: Int, at: TimeInterval)?) -> some View {
         let played = byPos.values.reduce(0, +)
         let positions: [(key: Int, value: TimeInterval)] = byPos.filter { $0.value >= 1 }.sorted { $0.value > $1.value }
-        let fraction: CGFloat = planned > 0 ? CGFloat(Swift.min(1, played / planned)) : 0
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(s.name(pl.id)).font(.subheadline.weight(.semibold))
@@ -516,24 +525,10 @@ private struct PlayingTimeCard: View {
                     .font(.subheadline).monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            if r.started {
-                GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Theme.benchBG)
-                        Capsule().fill(Theme.accent)
-                            .frame(width: g.size.width * fraction)
-                    }
-                }
-                .frame(height: 4)
-            }
+            PlayerTimeline(s: s, blocks: s.timeline(pl.id), now: now)
             if !positions.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(positions, id: \.key) { item in positionChip(item.key, item.value) }
-                }
-            } else if !r.started {
-                let plan = Set((0..<s.periods).compactMap { pl.cell($0) }).sorted().map { s.positionName($0) }
-                if !plan.isEmpty {
-                    Text("Plan: " + plan.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -552,6 +547,77 @@ private struct PlayingTimeCard: View {
     }
 
     static func minutes(_ seconds: TimeInterval) -> Int { Int((seconds / 60).rounded()) }
+}
+
+/// One girl's game as a timeline: both halves side by side, a block for each stretch at a
+/// position. What's been played is faded; what's still to come is in full color.
+private struct PlayerTimeline: View {
+    static let gap: CGFloat = 6
+    let s: LineupState
+    let blocks: [LineupState.TimelineBlock]
+    let now: (half: Int, at: TimeInterval)?
+
+    var body: some View {
+        GeometryReader { g in
+            let halfW = (g.size.width - Self.gap) / 2
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<2, id: \.self) { h in
+                    RoundedRectangle(cornerRadius: 3).fill(Theme.benchBG)
+                        .frame(width: halfW)
+                        .offset(x: CGFloat(h) * (halfW + Self.gap))
+                }
+                ForEach(pieces(), id: \.block) { piece in
+                    block(piece.block, past: piece.past, halfW: halfW)
+                }
+                if let now {
+                    Capsule().fill(Theme.accent)
+                        .frame(width: 2)
+                        .offset(x: x(now.half, now.at, halfW) - 1)
+                }
+            }
+        }
+        .frame(height: 20)
+    }
+
+    private func x(_ half: Int, _ t: TimeInterval, _ halfW: CGFloat) -> CGFloat {
+        CGFloat(half) * (halfW + Self.gap) + CGFloat(t / s.halfSeconds) * halfW
+    }
+
+    private func block(_ b: LineupState.TimelineBlock, past: Bool, halfW: CGFloat) -> some View {
+        let w = max(1, x(b.half, b.end, halfW) - x(b.half, b.start, halfW) - 1)
+        return RoundedRectangle(cornerRadius: 3)
+            .fill(Theme.background(group: s.group(b.pos)))
+            .overlay {
+                if w >= 18 {
+                    Text(s.positionName(b.pos))
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.foreground(group: s.group(b.pos)))
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                        .padding(.horizontal, 1)
+                }
+            }
+            .frame(width: w)
+            .opacity(past ? 0.4 : 1)
+            .offset(x: x(b.half, b.start, halfW))
+    }
+
+    /// Blocks split at the current time into what's been played and what's to come.
+    private func pieces() -> [(block: LineupState.TimelineBlock, past: Bool)] {
+        guard let now else { return blocks.map { ($0, false) } }
+        var out: [(block: LineupState.TimelineBlock, past: Bool)] = []
+        for b in blocks {
+            if b.half < now.half || (b.half == now.half && b.end <= now.at) {
+                out.append((b, true))
+            } else if b.half > now.half || b.start >= now.at {
+                out.append((b, false))
+            } else {
+                var before = b, after = b
+                before.end = now.at; after.start = now.at
+                out.append((before, true)); out.append((after, false))
+            }
+        }
+        return out
+    }
 }
 
 // MARK: - After a sub

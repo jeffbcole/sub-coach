@@ -77,3 +77,41 @@ extension LineupState {
         return total
     }
 }
+
+extension LineupState {
+    /// A stretch of one half at one position.
+    struct TimelineBlock: Hashable {
+        let half: Int
+        /// Clock times within the half.
+        var start: TimeInterval, end: TimeInterval
+        let pos: Int
+    }
+
+    /// When and where a girl plays over the whole game, as planned, including subs made
+    /// during periods. Back-to-back periods at the same position make one block.
+    func timeline(_ id: String) -> [TimelineBlock] {
+        guard let pl = players.first(where: { $0.id == id }) else { return [] }
+        var out: [TimelineBlock] = []
+        for p in 0..<periods {
+            let half = p / perHalf
+            let start = Double(p % perHalf) * periodSeconds, end = start + periodSeconds
+            var pos = pl.cell(p), from = start
+            func close(_ t: TimeInterval) {
+                guard let q = pos, t > from else { return }
+                if let last = out.last, last.half == half, last.pos == q, abs(last.end - from) < 0.5 {
+                    out[out.count - 1].end = t
+                } else {
+                    out.append(TimelineBlock(half: half, start: from, end: t, pos: q))
+                }
+            }
+            for s in subs(in: p) where s.off == id || s.on == id {
+                let t = min(max(s.at, start), end)
+                close(t)
+                pos = s.on == id ? s.pos : nil
+                from = t
+            }
+            close(end)
+        }
+        return out
+    }
+}
