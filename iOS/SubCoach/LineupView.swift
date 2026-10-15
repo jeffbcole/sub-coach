@@ -304,8 +304,6 @@ struct LineupView: View {
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { gridWidth = $0 }
-        // The grid has fixed column widths, so cap text size here or headers get cut off.
-        .dynamicTypeSize(...DynamicTypeSize.large)
     }
 
     private var halfLine: some View { Rectangle().fill(Color(.separator)).frame(width: 2) }

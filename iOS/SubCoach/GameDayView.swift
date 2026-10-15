@@ -7,6 +7,8 @@ struct GameDayView: View {
     @State private var confirmEnd = false
     @State private var askName = false
     @State private var nameText = ""
+    /// A player tapped on the field, to sub off.
+    @State private var subChoice: MakeSubSheet.Choice?
 
     /// How long a period's card says "SUB NOW" after the change.
     static let subNowSeconds: TimeInterval = 45
@@ -19,8 +21,9 @@ struct GameDayView: View {
                 let s = store.liveState
                 let r = store.liveClock.reading(at: ctx.date, s)
                 VStack(spacing: 0) {
-                    ClockCard(s: s, r: r)
-                        .padding([.horizontal, .top])
+                    ClockCard(s: s, r: r, onTap: canSub(r) ? { pos, id in subChoice = .init(off: id, pos: pos) } : nil)
+                        .padding(.horizontal)
+                        .padding(.top, 4)
                         .padding(.bottom, 8)
                     if store.isBroadcasting {
                         BroadcastStrip()
@@ -35,9 +38,25 @@ struct GameDayView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(spacing: 12) {
-                                ForEach((0..<s.periods).filter(s.showsCard), id: \.self) { p in
+                                let upcoming = (0..<s.periods).filter { s.showsCard($0) && showsUpcoming($0, r, s) }
+                                if !upcoming.isEmpty || !r.gameOver {
+                                    Text("Upcoming subs")
+                                        .font(.footnote.weight(.semibold)).textCase(.uppercase)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.leading, 4)
+                                        .id("top")
+                                }
+                                ForEach(upcoming, id: \.self) { p in
                                     SubCard(s: s, period: p, status: status(p, r, s),
-                                            changed: !store.isFollowing && store.lastSubs?.changedPeriods.contains(p) == true).id(p)
+                                            changed: !store.isFollowing && store.lastSubs?.changedPeriods.contains(p) == true)
+                                }
+                                if upcoming.isEmpty && !r.gameOver {
+                                    Text("No more subs this game.")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(14)
+                                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                                 }
                                 PlayingTimeCard(s: s, r: r)
                                     .padding(.top, 8)
@@ -45,10 +64,10 @@ struct GameDayView: View {
                             .padding([.horizontal, .bottom])
                             .padding(.top, 4)
                         }
-                        .onChange(of: focus(r, s)) { _, p in
-                            withAnimation { proxy.scrollTo(p, anchor: .top) }
+                        // Back to the next subs when the lineup changes.
+                        .onChange(of: focus(r, s)) { _, _ in
+                            withAnimation { proxy.scrollTo("top", anchor: .top) }
                         }
-                        .onAppear { proxy.scrollTo(focus(r, s), anchor: .top) }
                     }
                 }
                 .sensoryFeedback(.warning, trigger: r.period) { old, new in
@@ -124,6 +143,7 @@ struct GameDayView: View {
             } message: {
                 Text("Shown to coaches nearby when they're asked to follow your game.")
             }
+            .sheet(item: $subChoice) { MakeSubSheet(start: $0) }
             .onAppear { store.applyIdleTimer() }
             .onDisappear {
                 // Closing after full time ends the game, so the lineup is ready to start again.
@@ -132,7 +152,24 @@ struct GameDayView: View {
         }
     }
 
-    /// Which card to keep scrolled to the top.
+    /// Subs can be started by tapping a player on the field: this phone's game, before full time.
+    private func canSub(_ r: GameClock.Reading) -> Bool {
+        !store.isFollowing && !r.gameOver && !store.gameState.players.isEmpty
+    }
+
+    /// Below the field: subs still to call (including ones to call right now). A kickoff
+    /// lineup already shown on the field is left out.
+    private func showsUpcoming(_ p: Int, _ r: GameClock.Reading, _ s: LineupState) -> Bool {
+        switch status(p, r, s) {
+        case .done, .now: return false
+        case .subNow: return true
+        case .next, .upcoming:
+            let onFieldNow = !r.started ? 0 : r.halfOver && r.half == 0 ? s.perHalf : nil
+            return p != onFieldNow
+        }
+    }
+
+    /// Changes whenever a new lineup takes the field.
     private func focus(_ r: GameClock.Reading, _ s: LineupState) -> Int {
         if r.halfOver && r.half == 0 { return s.perHalf }
         return onNow(r, s) ?? 0
@@ -165,31 +202,55 @@ struct GameDayView: View {
 private struct ClockCard: View {
     @Environment(LineupStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var showSub = false
     let s: LineupState
     let r: GameClock.Reading
+    /// Tapping a player on the field: nil when subs can't be made from here.
+    let onTap: ((_ pos: Int, _ id: String) -> Void)?
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Text(statusLine)
-                .font(.footnote.weight(.semibold)).textCase(.uppercase)
+                .font(.caption.weight(.semibold)).textCase(.uppercase)
                 .foregroundStyle(.secondary)
-            Text(Game.clock(seconds: Int(r.elapsed)))
-                .font(.system(size: 64, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .foregroundStyle(store.liveClock.phase == .paused && !r.halfOver ? .secondary : .primary)
+            HStack(spacing: 14) {
+                Text(Game.clock(seconds: Int(r.elapsed)))
+                    .font(.system(size: 50, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundStyle(store.liveClock.phase == .paused && !r.halfOver ? .secondary : .primary)
+                pauseButton
+            }
             segments
             if r.started {
                 alertLine
-                    .frame(minHeight: 34)
+                    .frame(minHeight: 30)
             }
             buttons
+            LineupField(s: s, r: r, onTap: onTap)
+                .padding(.top, 2)
         }
-        .padding()
+        .padding(12)
         .frame(maxWidth: .infinity)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-        .sheet(isPresented: $showSub) { MakeSubSheet() }
+    }
+
+    /// Pause / resume, next to the clock while a half is being played.
+    @ViewBuilder private var pauseButton: some View {
+        let phase = store.liveClock.phase
+        if !store.isFollowing, phase != .ready, !r.halfOver {
+            let running = phase == .running
+            Button {
+                if running { store.pauseClock() } else { store.resumeClock() }
+            } label: {
+                Image(systemName: running ? "pause.fill" : "play.fill")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(running ? Theme.accent : Theme.accentText)
+                    .background(running ? Theme.accent.opacity(0.15) : Theme.accent, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(running ? "Pause" : "Resume")
+        }
     }
 
     private var statusLine: String {
@@ -211,7 +272,7 @@ private struct ClockCard: View {
                         Capsule().fill(Theme.accent).frame(width: g.size.width * fill)
                     }
                 }
-                .frame(height: 6)
+                .frame(height: 5)
             }
         }
     }
@@ -220,7 +281,7 @@ private struct ClockCard: View {
         if !r.started {
             EmptyView()
         } else if r.halfOver {
-            Text(r.half == 0 ? "Second half lineup is below." : "That's the game.")
+            Text(r.half == 0 ? "Tap a player to change the 2nd half lineup." : "That's the game.")
                 .font(.subheadline).foregroundStyle(.secondary)
         } else if let p = r.period, r.periodHasSubs, r.sincePeriodStart < GameDayView.subNowSeconds {
             pill("SUB NOW · Period \(p + 1)", systemImage: "arrow.left.arrow.right", color: .orange)
@@ -243,25 +304,20 @@ private struct ClockCard: View {
         Label(text, systemImage: systemImage)
             .font(.headline).monospacedDigit()
             .foregroundStyle(.white)
-            .padding(.horizontal, 14).padding(.vertical, 6)
+            .padding(.horizontal, 14).padding(.vertical, 5)
             .background(color, in: Capsule())
     }
 
+    /// Only for starting a half or ending the game; pausing is next to the clock and subs are
+    /// made by tapping a player.
     @ViewBuilder private var buttons: some View {
-        let phase = store.liveClock.phase
         if let f = store.following {
             FollowerControls(game: f)
-        } else if phase == .ready {
-            VStack(spacing: 8) {
-                bigButton("Kick off", systemImage: "play.fill") { store.startGame() }
-                subButton("Change starting lineup", prominent: false)
-            }
+        } else if store.liveClock.phase == .ready {
+            bigButton("Kick off", systemImage: "play.fill") { store.startGame() }
         } else if r.halfOver {
             if r.half == 0 {
-                VStack(spacing: 8) {
-                    bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
-                    subButton("Change 2nd half lineup", prominent: false)
-                }
+                bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
             } else {
                 Button {
                     store.resetClock()
@@ -271,30 +327,6 @@ private struct ClockCard: View {
                 }
                 .buttonStyle(.bordered).controlSize(.large)
             }
-        } else if phase == .running {
-            HStack(spacing: 10) {
-                Button { store.pauseClock() } label: {
-                    Label("Pause", systemImage: "pause.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).controlSize(.large)
-                subButton("Make a sub", prominent: true)
-            }
-        } else {
-            HStack(spacing: 10) {
-                bigButton("Resume", systemImage: "play.fill") { store.resumeClock() }
-                subButton("Make a sub", prominent: false)
-            }
-        }
-    }
-
-    @ViewBuilder private func subButton(_ title: String, prominent: Bool) -> some View {
-        if prominent {
-            bigButton(title, systemImage: "arrow.left.arrow.right") { showSub = true }
-        } else {
-            Button { showSub = true } label: {
-                Label(title, systemImage: "arrow.left.arrow.right").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered).controlSize(.large)
         }
     }
 
@@ -331,12 +363,16 @@ struct SubCard: View {
                 badge
             }
             // Everyone is off the field at kickoff, so show the lineup, not changes.
-            if period % s.perHalf == 0 {
-                lineupGrid(period)
-            } else {
-                changeRows
+            // Names and positions three text sizes up, to read at a glance on the sideline.
+            Group {
+                if period % s.perHalf == 0 {
+                    lineupGrid(period)
+                } else {
+                    changeRows
+                }
+                midSubRows
             }
-            midSubRows
+            .dynamicTypeSize(.xxxLarge)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -416,12 +452,24 @@ struct SubCard: View {
         }
     }
 
+    /// A kickoff lineup in the formation: forwards at the top, the keeper at the bottom, and
+    /// each line's positions left to right.
     private func lineupGrid(_ p: Int) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
-            ForEach(s.lineup(at: p), id: \.pos) { item in
-                HStack(spacing: 8) {
-                    chip(item.pos)
-                    Text(name(item.player)).font(.subheadline.weight(.medium)).lineLimit(1)
+        let byPos = Dictionary(s.lineup(at: p).map { ($0.pos, $0.player) }, uniquingKeysWith: { a, _ in a })
+        let lines = Array(Set((0..<s.positionCount).map(s.group))).sorted(by: >)
+        return VStack(spacing: 10) {
+            ForEach(lines, id: \.self) { line in
+                HStack(alignment: .top, spacing: 4) {
+                    ForEach((0..<s.positionCount).filter { s.group($0) == line }, id: \.self) { pos in
+                        VStack(spacing: 3) {
+                            chip(pos)
+                            Text(byPos[pos].map(name) ?? "Empty")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(byPos[pos] == nil ? .secondary : .primary)
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
                 }
             }
         }

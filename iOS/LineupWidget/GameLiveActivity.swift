@@ -14,6 +14,7 @@ struct GameLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: GameActivityAttributes.self) { context in
             LockScreenView(team: context.attributes.teamName, s: context.state, stale: context.isStale)
+                .dynamicTypeSize(.large)
                 .activityBackgroundTint(Color.black.opacity(0.8))
                 .activitySystemActionForegroundColor(green)
         } dynamicIsland: { context in
@@ -25,24 +26,29 @@ struct GameLiveActivity: Widget {
                         Text(periodLabel(s, stale: stale)).font(.headline)
                     }
                     .padding(.leading, 4)
+                    .dynamicTypeSize(.large)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     GameClockText(s: s)
                         .font(.title2.weight(.bold).monospacedDigit())
                         .padding(.trailing, 4)
+                        .dynamicTypeSize(.large)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     NextSubView(s: s, stale: stale, compact: true)
                         .padding(.horizontal, 4)
+                        .dynamicTypeSize(.large)
                 }
             } compactLeading: {
                 Image(systemName: "figure.soccer").foregroundStyle(green)
             } compactTrailing: {
                 CountdownText(s: s, stale: stale)
                     .frame(maxWidth: 48)
+                    .dynamicTypeSize(.large)
             } minimal: {
                 CountdownText(s: s, stale: stale, short: true)
                     .frame(maxWidth: 36)
+                    .dynamicTypeSize(.large)
             }
             .keylineTint(green)
         }

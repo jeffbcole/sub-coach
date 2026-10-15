@@ -85,7 +85,7 @@ struct RosterView: View {
                     get: { pl.name },
                     set: { v in store.updatePlayer(pl.id, undoable: false) { $0.name = v } })
                 )
-                .font(.headline)
+                .font(.title.weight(.semibold))
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.done)
@@ -124,7 +124,7 @@ struct RosterView: View {
                 .accessibilityLabel("Playing time")
             }
             // Up to 7 chips per row; bigger formations wrap to a second row.
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: min(7, formation.roles.count)), spacing: 5) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: min(7, formation.roles.count)), spacing: 6) {
                 ForEach(formation.roles, id: \.self) { role in
                     chip(pl, role)
                 }
@@ -141,9 +141,9 @@ struct RosterView: View {
             store.setCanPlay(pl.id, role, !on)
         } label: {
             Text(role.name)
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1).minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, minHeight: 32)
+                .font(.title3.weight(.bold))
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(on ? Theme.foreground(group: g) : Color.secondary)
                 .background(on ? Theme.background(group: g) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
                 .overlay {

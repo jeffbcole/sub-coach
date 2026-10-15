@@ -129,7 +129,6 @@ struct FormationDiagram: View {
                 }
             }
         }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Formation \(formation.name): \(formation.summary)")
     }

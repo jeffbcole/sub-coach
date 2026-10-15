@@ -29,7 +29,8 @@ A paid Apple Developer account ($99/yr) lasts a year and allows TestFlight.
 | `RootView.swift` | Main layout: Lineup screen with the lineups shelf (iPhone) or sidebar (iPad) |
 | `LineupsList.swift` | Saved lineups: open, new, rename, duplicate, delete |
 | `LineupView.swift` | Lineup screen: top bar, Start game, grid |
-| `GameDayView.swift` | Game Day (full screen): game clock and the subs to call each period |
+| `GameDayView.swift` | Game Day (full screen): game clock with who's on the field, and the subs to call each period |
+| `LineupField.swift` | Game Day header: who's on the field now, drawn in the formation; tap a player to sub |
 | `Substitutions.swift` | Works out who goes in / off / moves each period; the game clock |
 | `SubAlerts.swift` | Phone notifications at each sub time |
 | `RosterView.swift` | Roster sheet: names, positions each girl can play (per formation), playing time |

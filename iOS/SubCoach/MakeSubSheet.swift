@@ -8,14 +8,20 @@ struct MakeSubSheet: View {
     @State private var swaps: [Swap] = []
     /// Players coming off for the rest of the game.
     @State private var out: Set<String> = []
-    @State private var path: [Choice] = []
+    @State private var path: [Choice]
+
+    /// `start`: go straight to picking who goes in for that player (tapped on the field).
+    init(start: Choice? = nil) {
+        _path = State(initialValue: start.map { [$0] } ?? [])
+    }
 
     struct Swap: Identifiable, Equatable {
         let off: String, on: String, pos: Int
         var id: String { off + on }
     }
-    struct Choice: Hashable {
+    struct Choice: Hashable, Identifiable {
         let off: String, pos: Int
+        var id: Self { self }
     }
 
     var body: some View {
@@ -29,9 +35,7 @@ struct MakeSubSheet: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            .toolbar { closeButton }
             .navigationDestination(for: Choice.self) { c in
                 if let m = store.subMoment() {
                     IncomingList(choice: c, moment: m, onField: Set(field(m).values),
@@ -40,8 +44,17 @@ struct MakeSubSheet: View {
                         if isOut { out.insert(c.off) } else { out.remove(c.off) }
                         path.removeAll()
                     }
+                    .toolbar { closeButton }
                 }
             }
+        }
+    }
+
+    /// Top right on every step: closes the sheet without making any of the subs.
+    private var closeButton: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { dismiss() } label: { Image(systemName: "xmark") }
+                .accessibilityLabel("Close")
         }
     }
 
@@ -188,6 +201,7 @@ private struct IncomingList: View {
             }
         }
         .navigationTitle("In for \(s.name(choice.off))")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     /// The lines she plays (0 keeper, 1 defense, 2 midfield, 3 forward).
