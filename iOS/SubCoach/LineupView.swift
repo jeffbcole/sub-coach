@@ -216,12 +216,18 @@ struct LineupView: View {
             }
             let away = s.players.filter(\.absent)
             if !away.isEmpty {
-                Text("Not here today: \(away.map { $0.name.isEmpty ? "Unnamed" : $0.name }.joined(separator: ", ")).")
+                Text("Away: \(away.map { $0.name.isEmpty ? "Unnamed" : $0.name }.joined(separator: ", ")).")
             }
             let stillIn = away.filter { $0.periodsPlayed > 0 }
             if !stillIn.isEmpty {
-                Text("\(stillIn.map { $0.name.isEmpty ? "Unnamed" : $0.name }.joined(separator: " and ")) \(stillIn.count == 1 ? "is" : "are") marked not here but still in the lineup. Run auto-fill again.")
-                    .foregroundStyle(Theme.warn)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(stillIn.map { $0.name.isEmpty ? "Unnamed" : $0.name }.joined(separator: " and ")) \(stillIn.count == 1 ? "is" : "are") marked away but still in the lineup.")
+                        .foregroundStyle(Theme.warn)
+                    Button { showAttendance = true } label: {
+                        Label("Auto-fill around \(stillIn.count == 1 ? "her" : "them")", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                }
             }
             if off > 0 {
                 Text("\(off) \(off == 1 ? "cell has" : "cells have") a girl in a position that is turned off for her (outlined in red).")
@@ -250,7 +256,21 @@ struct LineupView: View {
                     .frame(height: halfRowHeight + periodRowHeight)
                 Divider()
                 ForEach(Array(s.players.enumerated()), id: \.element.id) { idx, pl in
-                    nameCell(pl, index: idx, s: s)
+                    // Tap a name to mark her away (or back) for this lineup only.
+                    Menu {
+                        Section(pl.name.isEmpty ? "Player \(idx + 1)" : pl.name) {
+                            Button {
+                                store.updatePlayer(pl.id) { $0.absent.toggle() }
+                            } label: {
+                                Label(pl.absent ? "Mark as here" : "Mark as away",
+                                      systemImage: pl.absent ? "person.fill.checkmark" : "person.slash")
+                            }
+                        }
+                    } label: {
+                        nameCell(pl, index: idx, s: s)
+                    }
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
                     Divider()
                 }
                 Text("Lineup check")
@@ -326,7 +346,8 @@ struct LineupView: View {
         return VStack(alignment: .leading, spacing: 3) {
             Text(pl.name.isEmpty ? "Player \(index + 1)" : pl.name)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(pl.name.isEmpty ? .secondary : .primary)
+                .foregroundStyle(pl.name.isEmpty || pl.absent ? .secondary : .primary)
+                .strikethrough(pl.absent)
                 .lineLimit(1)
             // One dot per period, narrower as periods are added so they fit beside the minutes.
             let gap: CGFloat = s.periods > 12 ? 1 : 2
@@ -343,9 +364,11 @@ struct LineupView: View {
                     .padding(.leading, 4)
             }
         }
-        .frame(height: rowHeight, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(pl.name), \(n) of \(s.periods) periods, \(mins) minutes")
+        .accessibilityLabel(pl.absent ? "\(pl.name), away" : "\(pl.name), \(n) of \(s.periods) periods, \(mins) minutes")
+        .accessibilityHint("Mark as away or here")
     }
 
     @ViewBuilder private func check(_ c: [Int], s: LineupState) -> some View {
