@@ -692,8 +692,9 @@ private struct PlayerTimeline: View {
 private struct SubResultBanner: View {
     @Environment(LineupStore.self) private var store
     let now: Date
-    /// How long Undo stays offered.
-    static let visibleFor: TimeInterval = 120
+    /// How long Undo stays offered for this phone's own subs; a following coach's sub is just
+    /// a heads-up, so it goes away sooner like the other notes.
+    static let visibleFor: TimeInterval = 120, remoteVisibleFor: TimeInterval = 8
 
     var body: some View {
         if store.isReplanning {
@@ -704,7 +705,7 @@ private struct SubResultBanner: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-        } else if let r = store.lastSubs, now.timeIntervalSince(r.made) < Self.visibleFor {
+        } else if let r = store.lastSubs, now.timeIntervalSince(r.made) < (r.madeBy == nil ? Self.visibleFor : Self.remoteVisibleFor) {
             let n = r.changedPeriods.count
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
