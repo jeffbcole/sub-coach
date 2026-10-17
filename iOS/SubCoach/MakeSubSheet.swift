@@ -66,7 +66,7 @@ struct MakeSubSheet: View {
     }
 
     private func picker(_ m: LineupStore.SubMoment) -> some View {
-        let s = store.gameState
+        let s = store.liveState
         let soFar = s.secondsSoFar(m)
         let isKickoff: Bool = if case .kickoff = m { true } else { false }
         return List {
@@ -115,7 +115,7 @@ struct MakeSubSheet: View {
 
     private func confirmButton(_ m: LineupStore.SubMoment) -> some View {
             Button {
-                store.makeSubs(swaps.map { ($0.off, $0.on) }, out: out)
+                store.game(.subs(swaps: swaps.map { .init(off: $0.off, on: $0.on) }, out: Array(out)))
                 dismiss()
             } label: {
                 Group {
@@ -151,7 +151,7 @@ private struct IncomingList: View {
     let pick: (String, Bool) -> Void
 
     var body: some View {
-        let s = store.gameState
+        let s = store.liveState
         let soFar = s.secondsSoFar(moment)
         // Girls who can play the spot first, least time played first; anyone out at the end.
         let bench = s.players

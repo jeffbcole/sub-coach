@@ -40,6 +40,14 @@ final class LineupStore {
     var followCheckTimer: Timer?
     /// Receiver: shares and broadcasts already answered, so nobody is asked twice.
     var handledSessions: [String] = []
+    /// Host: what a following coach just did to the game, shown briefly on Game Day.
+    var remoteNote: RemoteNote?
+    /// Host: changes from followers already applied (each is applied once).
+    var appliedCommands: [String] = []
+    /// Host: the latest of those, sent with the game so its sender knows it went through.
+    var lastCommand: String?
+    /// Follower: the last change sent to the host, and whether it's gone through.
+    var commandStatus: CommandStatus?
 
     private static let dir: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -397,8 +405,9 @@ final class LineupStore {
         var period: Int { switch self { case .kickoff(let p), .live(let p, _): p } }
     }
 
+    /// For the game shown on Game Day: this phone's own, or the one being followed.
     func subMoment(at now: Date = .now) -> SubMoment? {
-        let s = gameState
+        let s = liveState, clock = liveClock
         guard !s.players.isEmpty else { return nil }
         if clock.phase == .ready { return .kickoff(period: 0) }
         let r = clock.reading(at: now, s)
@@ -410,7 +419,7 @@ final class LineupStore {
 
     /// Who's on the field at that moment: player id -> position.
     func field(at m: SubMoment) -> [String: Int] {
-        let s = gameState
+        let s = liveState
         switch m {
         case .kickoff(let p):
             return Dictionary(s.players.compactMap { pl in pl.cell(p).map { (pl.id, $0) } }, uniquingKeysWith: { a, _ in a })
@@ -426,13 +435,15 @@ final class LineupStore {
         /// Upcoming periods the re-plan changed.
         var changedPeriods: Set<Int>
         let made: Date
+        /// The following coach who made them, if not this phone.
+        var madeBy: String? = nil
     }
     private(set) var lastSubs: SubResult?
     private(set) var isReplanning = false
 
     /// Record subs (off -> on) at this moment, mark anyone out for the game, then re-plan the
     /// rest of the game around them in the background.
-    func makeSubs(_ swaps: [(off: String, on: String)], out: Set<String>) {
+    func makeSubs(_ swaps: [(off: String, on: String)], out: Set<String>, by coach: String? = nil) {
         guard !isFollowing, !swaps.isEmpty, let m = subMoment() else { return }
         let id = gameLineupID ?? team.currentID
         guard var s = team.state(for: id) else { return }
@@ -460,7 +471,7 @@ final class LineupStore {
         s.normalize()
         // Save the subs right away; the rest of the game follows in a moment.
         setLineupState(s, for: id)
-        lastSubs = SubResult(lineupID: id, before: before, changedPeriods: [], made: .now)
+        lastSubs = SubResult(lineupID: id, before: before, changedPeriods: [], made: .now, madeBy: coach)
         let lock = m.period + 1
         guard lock < s.periods else { return }
         isReplanning = true

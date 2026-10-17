@@ -12,6 +12,9 @@ extension LineupStore {
         shareHost.onReply = { [weak self] reply in
             MainActor.assumeIsolated { self?.shareReplies[reply.coachID] = reply }
         }
+        shareHost.onCommand = { [weak self] command in
+            MainActor.assumeIsolated { self?.received(command) }
+        }
         shareClient.onBundle = { [weak self] bundle, peer in
             MainActor.assumeIsolated { self?.received(bundle, from: peer) }
         }
@@ -134,6 +137,7 @@ extension LineupStore {
             broadcastSession = Game.newID()
             broadcastRev = 0
             endedBroadcast = nil
+            lastCommand = nil
             saveBroadcast()
             publish()
         } else {
@@ -181,7 +185,8 @@ extension LineupStore {
         guard let session = broadcastSession else { return nil }
         let id = gameLineupID ?? team.currentID
         guard let lineup = team.lineup(id) else { return nil }
-        return GameOffer(session: session, rev: broadcastRev, lineup: lineup, players: team.roster, clock: clock, ended: false)
+        return GameOffer(session: session, rev: broadcastRev, lineup: lineup, players: team.roster, clock: clock, ended: false,
+                         control: true, lastCommand: lastCommand)
     }
 
     private func publish() {
@@ -242,6 +247,7 @@ extension LineupStore {
                 f.lastUpdate = .now
                 f.hostName = bundle.hostName
                 following = f
+                confirmCommand(in: g)
                 shareLog("game update rev \(g.rev)\(g.ended ? " (ended)" : "") phase \(g.clock.phase.rawValue) half \(g.clock.half)")
                 saveFollowing()
                 storeBroadcastLineup(g, hostName: bundle.hostName, hostID: bundle.hostID, select: false)

@@ -30,11 +30,16 @@ struct GameDayView: View {
                             .padding(.horizontal)
                             .padding(.bottom, 8)
                     }
-                    if !store.isFollowing {
-                        SubResultBanner(now: ctx.date)
-                            .padding(.horizontal)
-                            .padding(.bottom, 8)
+                    Group {
+                        if store.isFollowing {
+                            CommandBanner(now: ctx.date)
+                        } else {
+                            RemoteNoteBanner(now: ctx.date)
+                            SubResultBanner(now: ctx.date)
+                        }
                     }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                     ScrollViewReader { proxy in
                         ScrollView {
                             VStack(spacing: 12) {
@@ -106,21 +111,24 @@ struct GameDayView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        if store.clock.phase != .ready {
+                        if store.liveClock.phase != .ready {
                             Section("Adjust clock") {
-                                Button { store.adjustClock(by: 60) } label: { Label("Add 1 minute", systemImage: "plus") }
-                                Button { store.adjustClock(by: 10) } label: { Label("Add 10 seconds", systemImage: "plus") }
-                                Button { store.adjustClock(by: -10) } label: { Label("Take off 10 seconds", systemImage: "minus") }
-                                Button { store.adjustClock(by: -60) } label: { Label("Take off 1 minute", systemImage: "minus") }
+                                Button { store.game(.adjust(seconds: 60)) } label: { Label("Add 1 minute", systemImage: "plus") }
+                                Button { store.game(.adjust(seconds: 10)) } label: { Label("Add 10 seconds", systemImage: "plus") }
+                                Button { store.game(.adjust(seconds: -10)) } label: { Label("Take off 10 seconds", systemImage: "minus") }
+                                Button { store.game(.adjust(seconds: -60)) } label: { Label("Take off 1 minute", systemImage: "minus") }
                             }
-                            Button { store.endHalfNow() } label: { Label("End half now", systemImage: "forward.end") }
-                            Button(role: .destructive) { confirmEnd = true } label: { Label("End game", systemImage: "stop.fill") }
+                            Button { store.game(.endHalf) } label: { Label("End half now", systemImage: "forward.end") }
+                            // Ending the game also ends the broadcast, so only the host can.
+                            if !store.isFollowing {
+                                Button(role: .destructive) { confirmEnd = true } label: { Label("End game", systemImage: "stop.fill") }
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
-                    .disabled(store.clock.phase == .ready || store.isFollowing)
-                    .opacity(store.isFollowing ? 0 : 1)
+                    .disabled(store.liveClock.phase == .ready || !store.canControlGame)
+                    .opacity(store.canControlGame ? 1 : 0)
                     .accessibilityLabel("Clock options")
                 }
             }
@@ -152,9 +160,10 @@ struct GameDayView: View {
         }
     }
 
-    /// Subs can be started by tapping a player on the field: this phone's game, before full time.
+    /// Subs can be started by tapping a player on the field before full time: on this phone's
+    /// game, or a followed one whose host lets followers make changes.
     private func canSub(_ r: GameClock.Reading) -> Bool {
-        !store.isFollowing && !r.gameOver && !store.gameState.players.isEmpty
+        store.canControlGame && !r.gameOver && !store.liveState.players.isEmpty
     }
 
     /// Below the field: subs still to call (including ones to call right now). A kickoff
@@ -237,10 +246,10 @@ private struct ClockCard: View {
     /// Pause / resume, next to the clock while a half is being played.
     @ViewBuilder private var pauseButton: some View {
         let phase = store.liveClock.phase
-        if !store.isFollowing, phase != .ready, !r.halfOver {
+        if store.canControlGame, phase != .ready, !r.halfOver {
             let running = phase == .running
             Button {
-                if running { store.pauseClock() } else { store.resumeClock() }
+                store.game(running ? .pause : .resume)
             } label: {
                 Image(systemName: running ? "pause.fill" : "play.fill")
                     .font(.title3)
@@ -312,12 +321,21 @@ private struct ClockCard: View {
     /// made by tapping a player.
     @ViewBuilder private var buttons: some View {
         if let f = store.following {
-            FollowerControls(game: f)
+            VStack(spacing: 10) {
+                if store.canControlGame {
+                    if store.liveClock.phase == .ready {
+                        bigButton("Kick off", systemImage: "play.fill") { store.game(.kickoff) }
+                    } else if r.halfOver && r.half == 0 {
+                        bigButton("Start 2nd half", systemImage: "play.fill") { store.game(.startSecondHalf) }
+                    }
+                }
+                FollowerControls(game: f)
+            }
         } else if store.liveClock.phase == .ready {
-            bigButton("Kick off", systemImage: "play.fill") { store.startGame() }
+            bigButton("Kick off", systemImage: "play.fill") { store.game(.kickoff) }
         } else if r.halfOver {
             if r.half == 0 {
-                bigButton("Start 2nd half", systemImage: "play.fill") { store.startSecondHalf() }
+                bigButton("Start 2nd half", systemImage: "play.fill") { store.game(.startSecondHalf) }
             } else {
                 Button {
                     store.resetClock()
@@ -691,7 +709,9 @@ private struct SubResultBanner: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(n == 0 ? "Sub made" : "Rest of game updated").font(.subheadline.weight(.semibold))
+                    Text(r.madeBy.map { "\($0) made a sub" + (n == 0 ? "" : " · rest of game updated") }
+                         ?? (n == 0 ? "Sub made" : "Rest of game updated"))
+                        .font(.subheadline.weight(.semibold))
                     Text(n == 0 ? "No changes needed to upcoming subs" : "\(n) upcoming \(n == 1 ? "period" : "periods") changed")
                         .font(.caption)
                 }
@@ -710,6 +730,54 @@ private struct SubResultBanner: View {
 
 // MARK: - Sharing
 
+/// Host: what a following coach just did to the clock, for a few seconds.
+private struct RemoteNoteBanner: View {
+    @Environment(LineupStore.self) private var store
+    let now: Date
+
+    var body: some View {
+        if let n = store.remoteNote, now.timeIntervalSince(n.at) < 6 {
+            Label(n.text, systemImage: "antenna.radiowaves.left.and.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.blue)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+/// Follower: a change sent to the host, until it's confirmed (or didn't get through).
+private struct CommandBanner: View {
+    @Environment(LineupStore.self) private var store
+    let now: Date
+
+    var body: some View {
+        if let c = store.commandStatus, let host = store.following?.hostName,
+           c.state == .sending || now.timeIntervalSince(c.at) < (c.state == .failed ? 10 : 4) {
+            HStack(spacing: 8) {
+                switch c.state {
+                case .sending:
+                    ProgressView()
+                    Text("Sending to \(host)…")
+                case .done:
+                    Image(systemName: "checkmark.circle.fill")
+                    Text("Done · everyone's phone is updated")
+                case .failed:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("Couldn't reach \(host)'s phone. Try again.")
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(c.state == .failed ? Theme.warn : c.state == .done ? Theme.accent : .blue)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background((c.state == .failed ? Theme.warn : c.state == .done ? Theme.accent : .blue).opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
 /// Host: shown under the clock while broadcasting.
 private struct BroadcastStrip: View {
     @Environment(LineupStore.self) private var store
@@ -719,8 +787,12 @@ private struct BroadcastStrip: View {
         HStack(spacing: 8) {
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .symbolEffect(.variableColor.iterative)
-            Text(names.isEmpty ? "Broadcasting to nearby coaches" : "\(names.count) following: \(names.joined(separator: ", "))")
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(names.isEmpty ? "Broadcasting to nearby coaches" : "\(names.count) following: \(names.joined(separator: ", "))")
+                    .lineLimit(2)
+                Text("Coaches following can make subs and run the clock")
+                    .font(.caption).opacity(0.8)
+            }
             Spacer(minLength: 0)
         }
         .font(.subheadline.weight(.medium))
@@ -730,7 +802,7 @@ private struct BroadcastStrip: View {
     }
 }
 
-/// Follower: in place of the clock buttons. Only the host can run the clock.
+/// Follower: who's being followed, and the way out.
 private struct FollowerControls: View {
     @Environment(LineupStore.self) private var store
     @Environment(\.dismiss) private var dismiss

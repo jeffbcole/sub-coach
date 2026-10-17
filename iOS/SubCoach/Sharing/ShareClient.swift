@@ -65,8 +65,23 @@ final class ShareClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     }
 
     func send(_ reply: ShareReply, to id: UUID) {
-        guard let p = peers[id], let c = replyCharacteristics[id], let data = try? JSONEncoder().encode(reply) else { return }
+        guard let data = try? JSONEncoder().encode(reply) else { return }
+        write(data, to: id)
+    }
+
+    /// A change to the followed game. Returns false if the host can't be reached right now.
+    @discardableResult
+    func send(_ command: GameCommand, to id: UUID) -> Bool {
+        guard let data = Framer.encode(command) else { return false }
+        return write(data, to: id)
+    }
+
+    /// With response, so iOS splits anything longer than a packet and the host gets it whole.
+    @discardableResult
+    private func write(_ data: Data, to id: UUID) -> Bool {
+        guard let p = peers[id], p.state == .connected, let c = replyCharacteristics[id] else { return false }
         p.writeValue(data, for: c, type: .withResponse)
+        return true
     }
 
     /// Scan for coaches who are sharing, and keep restarting the scan while the app is open.

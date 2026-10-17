@@ -5,6 +5,8 @@ import Foundation
 /// who connects, and again whenever it changes.
 final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     var onReply: (ShareReply) -> Void = { _ in }
+    /// A following coach changed the game.
+    var onCommand: (GameCommand) -> Void = { _ in }
     /// A coach's phone disconnected (stopped following, out of range, or app closed).
     var onCoachGone: (String) -> Void = { _ in }
     /// Which coach is behind each connection, learned from their replies.
@@ -130,10 +132,17 @@ final class ShareHost: NSObject, CBPeripheralManagerDelegate {
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
-        for r in requests {
-            if let v = r.value, let reply = try? JSONDecoder().decode(ShareReply.self, from: v) {
-                coachByCentral[r.central.identifier] = reply.coachID
+        // A message too long for one packet arrives as several pieces with offsets.
+        var byCentral: [UUID: [CBATTRequest]] = [:]
+        for r in requests where r.characteristic.uuid == ShareBLE.reply { byCentral[r.central.identifier, default: []].append(r) }
+        for (central, parts) in byCentral {
+            let data = parts.sorted { $0.offset < $1.offset }.reduce(into: Data()) { $0.append($1.value ?? Data()) }
+            if let reply = try? JSONDecoder().decode(ShareReply.self, from: data) {
+                coachByCentral[central] = reply.coachID
                 onReply(reply)
+            } else if let command = Framer.decode(GameCommand.self, from: data) {
+                coachByCentral[central] = command.coachID
+                onCommand(command)
             }
         }
         if let first = requests.first { peripheral.respond(to: first, withResult: .success) }

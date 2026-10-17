@@ -6,7 +6,8 @@ enum ShareBLE {
     static let service = CBUUID(string: "8B3E1A70-5C2D-4F7A-9E61-2A4C7D9B0E11")
     /// Host -> coaches (notify): the host's current bundle, in chunks.
     static let stream = CBUUID(string: "8B3E1A71-5C2D-4F7A-9E61-2A4C7D9B0E11")
-    /// Coaches -> host (write): a short reply such as "accepted" or "following".
+    /// Coaches -> host (write): a short reply such as "accepted" or "following", or a change
+    /// to the game from a coach who's following it.
     static let reply = CBUUID(string: "8B3E1A72-5C2D-4F7A-9E61-2A4C7D9B0E11")
 }
 
@@ -55,6 +56,46 @@ struct GameOffer: Codable, Equatable {
     var clock: GameClock
     /// The host stopped broadcasting or reset the game.
     var ended: Bool
+    /// Followers may run the clock and make subs (missing from builds before this was possible).
+    var control: Bool? = nil
+    /// The last change sent by a follower that's included here, so they know it went through.
+    var lastCommand: String? = nil
+}
+
+/// A change to the game made on a follower's phone. The host's phone applies it as if the host
+/// had tapped it, then sends the result to everyone following.
+struct GameCommand: Codable, Equatable {
+    enum Action: Codable, Equatable {
+        case kickoff, pause, resume, endHalf, startSecondHalf
+        case adjust(seconds: Double)
+        case subs(swaps: [Swap], out: [String])
+    }
+    struct Swap: Codable, Equatable {
+        var off: String
+        var on: String
+    }
+    /// The broadcast this is for.
+    var session: String
+    /// Unique per command, so it's applied once and the sender can tell when it's in.
+    var id: String
+    var coachID: String
+    var coachName: String
+    var action: Action
+}
+
+extension GameCommand.Action {
+    /// e.g. "paused the clock", for "Sam paused the clock".
+    var pastTense: String {
+        switch self {
+        case .kickoff: "kicked off"
+        case .pause: "paused the clock"
+        case .resume: "restarted the clock"
+        case .endHalf: "ended the half"
+        case .startSecondHalf: "started the 2nd half"
+        case .adjust(let s): "\(s > 0 ? "added" : "took off") \(Game.clock(seconds: Int(abs(s)))) on the clock"
+        case .subs(let swaps, _): swaps.count == 1 ? "made a sub" : "made \(swaps.count) subs"
+        }
+    }
 }
 
 struct ShareReply: Codable, Equatable {
