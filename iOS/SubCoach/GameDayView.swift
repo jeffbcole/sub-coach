@@ -694,7 +694,7 @@ private struct SubResultBanner: View {
     let now: Date
     /// How long Undo stays offered for this phone's own subs; a following coach's sub is just
     /// a heads-up, so it goes away sooner like the other notes.
-    static let visibleFor: TimeInterval = 120, remoteVisibleFor: TimeInterval = 8
+    static let visibleFor: TimeInterval = 45, remoteVisibleFor: TimeInterval = 8
 
     var body: some View {
         if store.isReplanning {
