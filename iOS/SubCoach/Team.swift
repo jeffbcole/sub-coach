@@ -53,6 +53,9 @@ struct SavedLineup: Codable, Identifiable, Equatable {
     var subs: [MidSub] = []
     /// Players who came off for the rest of the game.
     var out: [String] = []
+    /// A followed game's own players (the host's roster). Nil for the coach's own lineups,
+    /// which use the team roster; a followed game never adds to it.
+    var players: [RosterPlayer]? = nil
 
     var displayName: String {
         let t = name.trimmingCharacters(in: .whitespaces)
@@ -77,6 +80,7 @@ extension SavedLineup {
         broadcast = try c.decodeIfPresent(BroadcastLink.self, forKey: .broadcast)
         subs = try c.decodeIfPresent([MidSub].self, forKey: .subs) ?? []
         out = try c.decodeIfPresent([String].self, forKey: .out) ?? []
+        players = try c.decodeIfPresent([RosterPlayer].self, forKey: .players)
     }
 }
 
@@ -104,10 +108,45 @@ struct TeamData: Codable, Equatable {
 
     func lineup(_ id: String) -> SavedLineup? { lineups.first { $0.id == id } }
 
+    /// The players a lineup uses: a followed game's own copy, otherwise the team roster.
+    func players(for id: String) -> [RosterPlayer] { lineup(id)?.players ?? roster }
+
+    /// Store edited players where that lineup keeps them.
+    mutating func setPlayers(_ players: [RosterPlayer], for id: String) {
+        if let i = lineups.firstIndex(where: { $0.id == id }), lineups[i].players != nil {
+            lineups[i].players = players
+        } else {
+            roster = players
+        }
+    }
+
+    /// Followed games used to add the host's players to the coach's own roster. Give each
+    /// followed lineup its own copy of its players, and take players off the roster who only
+    /// came from a followed game: in it, and in none of the coach's own lineups saved before
+    /// it was first followed. Returns whether anything changed.
+    mutating func separateFollowedRosters() -> Bool {
+        let followed = lineups.filter { $0.broadcast != nil && $0.players == nil }
+        guard !followed.isEmpty else { return false }
+        let own = lineups.filter { $0.broadcast == nil }
+        var fromGames = Set<String>()
+        for p in roster {
+            let games = followed.filter { $0.cells[p.id] != nil }
+            guard let since = games.map(\.updated).min() else { continue }
+            if !own.contains(where: { $0.cells[p.id] != nil && $0.updated < since }) { fromGames.insert(p.id) }
+        }
+        for i in lineups.indices where lineups[i].broadcast != nil && lineups[i].players == nil {
+            let keys = Set(lineups[i].cells.keys)
+            lineups[i].players = roster.filter { keys.contains($0.id) }
+        }
+        // Never leave the coach with no roster at all.
+        if fromGames.count < roster.count { roster.removeAll { fromGames.contains($0.id) } }
+        return true
+    }
+
     /// The working copy the screens and auto-fill use: roster + one lineup combined.
     func state(for id: String) -> LineupState? {
         guard let l = lineup(id) else { return nil }
-        let away = Set(l.absent), done = Set(l.out)
+        let away = Set(l.absent), done = Set(l.out), roster = players(for: id)
         var s = LineupState()
         s.perHalf = l.perHalf
         s.halfMinutes = l.halfMinutes
@@ -133,8 +172,8 @@ struct TeamData: Codable, Equatable {
         // Only record a preference when it differs from what's already there (or guessed),
         // so roles this formation doesn't use keep following the rest of their line.
         let roles = Formation.named(lineups[i].formation).roles
-        let before = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
-        roster = s.players.map { p in
+        let before = Dictionary(uniqueKeysWithValues: players(for: id).map { ($0.id, $0) })
+        let edited = s.players.map { p in
             var r = before[p.id] ?? RosterPlayer(id: p.id, name: p.name, prefs: [:], weight: p.weight)
             r.name = p.name
             r.weight = p.weight
@@ -143,6 +182,7 @@ struct TeamData: Codable, Equatable {
             }
             return r
         }
+        setPlayers(edited, for: id)
         var l = lineups[i]
         l.name = s.title
         l.perHalf = s.perHalf

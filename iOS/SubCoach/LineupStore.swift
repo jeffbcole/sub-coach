@@ -77,6 +77,11 @@ final class LineupStore {
             t = TeamData.migrating(from: s)
         }
         t.repair()
+        // Once: followed games no longer add the host's players to this coach's roster.
+        if !UserDefaults.standard.bool(forKey: Self.followedRostersKey) {
+            if t.separateFollowedRosters() { migrated = true }
+            UserDefaults.standard.set(true, forKey: Self.followedRostersKey)
+        }
         team = t
         state = t.state(for: t.currentID) ?? LineupState()
         if let data = UserDefaults.standard.data(forKey: Self.clockKey),
@@ -176,15 +181,17 @@ final class LineupStore {
 
     /// Can this roster player play this role? (Unset center roles follow the rest of their line.)
     func canPlay(_ playerID: String, _ role: Role) -> Bool {
-        team.roster.first { $0.id == playerID }?.canPlay(role) ?? false
+        team.players(for: team.currentID).first { $0.id == playerID }?.canPlay(role) ?? false
     }
 
     /// Set a roster preference for one role; it applies in every formation that uses that role.
     func setCanPlay(_ playerID: String, _ role: Role, _ on: Bool) {
-        guard let i = team.roster.firstIndex(where: { $0.id == playerID }) else { return }
+        var players = team.players(for: team.currentID)
+        guard let i = players.firstIndex(where: { $0.id == playerID }) else { return }
         pushUndo()
+        players[i].prefs[role.rawValue] = on
         var t = team
-        t.roster[i].prefs[role.rawValue] = on
+        t.setPlayers(players, for: t.currentID)
         setTeam(t)
         save()
     }
@@ -227,6 +234,7 @@ final class LineupStore {
     // MARK: Game clock
 
     private static let clockKey = "gameClock"
+    private static let followedRostersKey = "followedRostersSeparated"
     private(set) var clock = GameClock()
 
     /// The lineup the game in progress is using (nil before kickoff).

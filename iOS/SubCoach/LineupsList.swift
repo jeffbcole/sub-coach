@@ -96,7 +96,8 @@ struct LineupsList: View {
     private func row(_ l: SavedLineup) -> some View {
         let isOpen = l.id == store.team.currentID
         let inGame = l.id == store.liveGameLineupID()
-        let here = store.team.roster.count - l.absent.filter { id in store.team.roster.contains { $0.id == id } }.count
+        let players = store.team.players(for: l.id)
+        let here = players.count - l.absent.filter { id in players.contains { $0.id == id } }.count
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(l.displayName)

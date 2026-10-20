@@ -185,7 +185,7 @@ extension LineupStore {
         guard let session = broadcastSession else { return nil }
         let id = gameLineupID ?? team.currentID
         guard let lineup = team.lineup(id) else { return nil }
-        return GameOffer(session: session, rev: broadcastRev, lineup: lineup, players: team.roster, clock: clock, ended: false,
+        return GameOffer(session: session, rev: broadcastRev, lineup: lineup, players: team.players(for: id), clock: clock, ended: false,
                          control: true, lastCommand: lastCommand)
     }
 
@@ -344,9 +344,9 @@ extension LineupStore {
                 if extra.contains(t.currentID) { t.currentID = id }
             }
         }
-        // Bring along any of the host's players this coach's roster doesn't have yet.
-        for p in g.players where !t.roster.contains(where: { $0.id == p.id }) { t.roster.append(p) }
+        // The game keeps the host's players to itself; this coach's own roster isn't touched.
         var l = g.lineup
+        l.players = g.players
         l.id = id
         l.broadcast = BroadcastLink(session: g.session, hostID: hostID, hostName: hostName, hostLineupID: g.lineup.id)
         if let i = t.lineups.firstIndex(where: { $0.id == id }) {
